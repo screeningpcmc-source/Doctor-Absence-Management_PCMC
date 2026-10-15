@@ -1,0 +1,6 @@
+{
+  "name": "Doctor Absence Management",
+  "description": "ระบบลงทะเบียนแพทย์งดออกตรวจและบริหารจัดการโควตาคิว Walk-in ประจำโรงพยาบาล",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
