@@ -38,7 +38,12 @@ export const initAuth = (
   });
 };
 
-export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+export interface SignInResult {
+  user: User;
+  accessToken: string;
+}
+
+export const googleSignIn = async (): Promise<SignInResult | null> => {
   try {
     isSigningIn = true;
     const result = await signInWithPopup(auth, provider);
@@ -50,6 +55,20 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
     console.error('Sign in error:', error);
+    // Parse common Firebase errors into actionable Thai descriptions
+    const code = error?.code || '';
+    if (code === 'auth/unauthorized-domain' || error?.message?.includes('unauthorized-domain')) {
+      const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'unknown';
+      throw new Error(
+        `โดเมน '${currentHost}' ยังไม่ได้รับอนุญาตใน Firebase Console (auth/unauthorized-domain)`
+      );
+    } else if (code === 'auth/popup-blocked' || error?.message?.includes('popup-blocked')) {
+      throw new Error('เบราว์เซอร์บล็อกหน้าต่างป็อปอัป กรุณาอนุญาตป็อปอัปสำหรับเว็บไซต์นี้');
+    } else if (code === 'auth/popup-closed-by-user' || error?.message?.includes('closed-by-user')) {
+      throw new Error('หน้าต่างเข้าสู่ระบบถูกปิดก่อนเสร็จสิ้นกระบวนการ');
+    } else if (code === 'auth/network-request-failed') {
+      throw new Error('การเชื่อมต่ออินเทอร์เน็ตมีปัญหา กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่');
+    }
     throw error;
   } finally {
     isSigningIn = false;

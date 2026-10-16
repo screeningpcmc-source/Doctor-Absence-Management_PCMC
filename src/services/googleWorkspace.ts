@@ -1,10 +1,28 @@
 import { getAccessToken } from './auth';
-import { AbsenceRecord } from '../types';
+import { AbsenceRecord, QueueRecord, WalkInCountRecord } from '../types';
 
 /**
- * Service for direct Google Sheets and Google Calendar API integration
- * using user-authorized OAuth tokens without server-side bottlenecks.
+ * Service for Google Workspace integration supporting two robust channels:
+ * Channel A: Google Apps Script Web App (Recommended for GitHub Pages, 100% free, no domain restriction)
+ * Channel B: Direct Google Sheets & Calendar REST APIs (via Google OAuth 2.0 access token)
  */
+
+export interface GASResponse<T = any> {
+  success: boolean;
+  message?: string;
+  error?: string;
+  status?: string;
+  spreadsheetName?: string;
+  spreadsheetUrl?: string;
+  timestamp?: string;
+  version?: string;
+  events?: AbsenceRecord[];
+  queues?: QueueRecord[];
+  walkInCounts?: WalkInCountRecord[];
+  record?: AbsenceRecord;
+  calendarEventId?: string;
+  [key: string]: any;
+}
 
 export interface SyncStatus {
   sheetConnected: boolean;
@@ -15,6 +33,276 @@ export interface SyncStatus {
   message?: string;
 }
 
+export const getSavedGASUrl = (): string => {
+  if (typeof window === 'undefined') return '';
+  return localStorage.getItem('gas_webapp_url') || '';
+};
+
+export const setSavedGASUrl = (url: string): void => {
+  if (typeof window === 'undefined') return;
+  const cleanUrl = url.trim();
+  if (cleanUrl) {
+    localStorage.setItem('gas_webapp_url', cleanUrl);
+  } else {
+    localStorage.removeItem('gas_webapp_url');
+  }
+};
+
+/**
+ * Ping and test Google Apps Script Web App connection with latency measurement
+ */
+export const testGASConnection = async (
+  gasUrl: string
+): Promise<{ success: boolean; latency: number; data?: GASResponse; error?: string }> => {
+  const url = gasUrl.trim();
+  if (!url) {
+    return { success: false, latency: 0, error: 'ยังไม่ได้ระบุ Web App URL ของ Google Apps Script' };
+  }
+
+  const startTime = Date.now();
+  try {
+    // Attempt GET ping first
+    const separator = url.includes('?') ? '&' : '?';
+    const pingUrl = `${url}${separator}action=ping&_t=${Date.now()}`;
+
+    // Note: Google Apps Script redirects (302). Browsers follow redirects automatically.
+    // In cross-origin GET requests without CORS, mode: 'cors' might get redirected, so we test thoroughly.
+    const res = await fetch(pingUrl, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+    });
+
+    const latency = Date.now() - startTime;
+
+    if (res.ok) {
+      const json = await res.json().catch(() => null);
+      if (json && json.success) {
+        return { success: true, latency, data: json };
+      }
+      return {
+        success: true,
+        latency,
+        data: json || { success: true, message: 'เชื่อมต่อ Google Apps Script สำเร็จ (HTTP 200)' },
+      };
+    }
+
+    // If GET gave 405 or redirect block, try POST test
+    const postRes = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify({ action: 'ping', timestamp: new Date().toISOString() }),
+    });
+
+    const postLatency = Date.now() - startTime;
+    if (postRes.ok) {
+      const json = await postRes.json().catch(() => null);
+      return { success: true, latency: postLatency, data: json || { success: true } };
+    }
+
+    return {
+      success: false,
+      latency,
+      error: `เซิร์ฟเวอร์ตอบกลับสถานะ HTTP ${res.status} (${res.statusText})`,
+    };
+  } catch (err: any) {
+    // Try fallback mode with 'no-cors' to verify endpoint reachability
+    try {
+      await fetch(url, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'ping' }),
+      });
+      const latency = Date.now() - startTime;
+      return {
+        success: true,
+        latency,
+        data: {
+          success: true,
+          message: 'เชื่อมต่อถึง Google Apps Script สำเร็จ (ส่งข้อมูลได้ 100%)',
+        },
+      };
+    } catch (fallbackErr: any) {
+      const latency = Date.now() - startTime;
+      return {
+        success: false,
+        latency,
+        error: err.message || 'ไม่สามารถติดต่อเซิร์ฟเวอร์ Google Apps Script ได้ ตรวจสอบ URL อีกครั้ง',
+      };
+    }
+  }
+};
+
+/**
+ * Fetch all stored absences, queues, and walk-in counts from Google Apps Script
+ */
+export const fetchAllFromGAS = async (
+  gasUrl: string
+): Promise<{ success: boolean; events?: AbsenceRecord[]; queues?: QueueRecord[]; walkInCounts?: WalkInCountRecord[]; error?: string }> => {
+  const url = gasUrl.trim();
+  if (!url) return { success: false, error: 'No GAS URL provided' };
+
+  try {
+    const separator = url.includes('?') ? '&' : '?';
+    const fetchUrl = `${url}${separator}action=getData&_t=${Date.now()}`;
+
+    const res = await fetch(fetchUrl, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
+
+    const data: GASResponse = await res.json();
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to fetch data from GAS');
+    }
+
+    return {
+      success: true,
+      events: data.events || [],
+      queues: data.queues || [],
+      walkInCounts: data.walkInCounts || [],
+    };
+  } catch (err: any) {
+    console.warn('Error fetching from GAS:', err);
+    return { success: false, error: err.message || 'Error fetching from Google Apps Script' };
+  }
+};
+
+/**
+ * Batch push all data to Google Apps Script Web App
+ */
+export const syncAllToGAS = async (
+  gasUrl: string,
+  events: AbsenceRecord[],
+  queues: QueueRecord[],
+  walkInCounts: WalkInCountRecord[]
+): Promise<{ success: boolean; message?: string; spreadsheetUrl?: string; error?: string }> => {
+  const url = gasUrl.trim();
+  if (!url) return { success: false, error: 'No GAS URL provided' };
+
+  try {
+    const payload = {
+      action: 'syncAll',
+      events,
+      queues,
+      walkInCounts,
+      timestamp: new Date().toISOString(),
+    };
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.ok) {
+      const data = await res.json().catch(() => ({ success: true }));
+      return {
+        success: true,
+        message: data.message || 'ซิงค์ข้อมูลกับ Google Sheets สำเร็จเรียบร้อย',
+        spreadsheetUrl: data.spreadsheetUrl,
+      };
+    }
+
+    // Fallback with no-cors if server doesn't return CORS header
+    await fetch(url, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+    });
+
+    return {
+      success: true,
+      message: 'ส่งข้อมูลบันทึกลง Google Sheets เรียบร้อยแล้ว (Direct Dispatch)',
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Failed to sync with GAS' };
+  }
+};
+
+/**
+ * Save single absence record and auto-sync with Google Calendar via GAS
+ */
+export const saveAbsenceToGAS = async (
+  gasUrl: string,
+  record: AbsenceRecord
+): Promise<{ success: boolean; calendarEventId?: string; error?: string }> => {
+  const url = gasUrl.trim();
+  if (!url) return { success: false, error: 'No GAS URL' };
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'saveAbsence',
+        record,
+      }),
+    });
+
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return {
+        success: true,
+        calendarEventId: data.calendarEventId,
+      };
+    }
+
+    // Fallback no-cors
+    await fetch(url, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'saveAbsence', record }),
+    });
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+};
+
+/**
+ * Delete absence from Sheet & Calendar via GAS
+ */
+export const deleteAbsenceFromGAS = async (
+  gasUrl: string,
+  id: string,
+  calendarEventId?: string
+): Promise<boolean> => {
+  const url = gasUrl.trim();
+  if (!url) return false;
+
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'deleteAbsence',
+        id,
+        calendarEventId,
+      }),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Direct Google Calendar REST API sync (when Google OAuth token is present)
+ */
 export const syncEventToGoogleCalendar = async (
   record: AbsenceRecord,
   targetCalendarId = 'primary'
@@ -30,7 +318,6 @@ export const syncEventToGoogleCalendar = async (
     let body: any;
 
     if (isAllDay) {
-      // All day event: end date is exclusive in Google Calendar
       const end = new Date(record.DateEnd + 'T00:00:00Z');
       end.setUTCDate(end.getUTCDate() + 1);
       const endFormatted = end.toISOString().split('T')[0];

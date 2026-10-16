@@ -1,6 +1,5 @@
 @import "tailwindcss";
 
-body {
-  font-family: 'Kanit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  -webkit-font-smoothing: antialiased;
+* {
+  font-family: 'Kanit', 'Prompt', 'Sarabun', 'Noto Sans Thai', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }

@@ -22,11 +22,13 @@ interface HeaderProps {
   onPinLogout: () => void;
   onOpenAddModal: () => void;
   googleUser: User | null;
+  onOpenGoogleModal: () => void;
   onGoogleSignIn: () => void;
   onGoogleSignOut: () => void;
   isSyncing: boolean;
   onSyncWorkspace: () => void;
   spreadsheetUrl?: string | null;
+  hasGASConfigured?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -38,11 +40,13 @@ export const Header: React.FC<HeaderProps> = ({
   onPinLogout,
   onOpenAddModal,
   googleUser,
+  onOpenGoogleModal,
   onGoogleSignIn,
   onGoogleSignOut,
   isSyncing,
   onSyncWorkspace,
   spreadsheetUrl,
+  hasGASConfigured,
 }) => {
   const isAdmin = authPin === '4217';
 
@@ -163,8 +167,28 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {/* Google Workspace Sign-in */}
-        {googleUser ? (
+        {/* Google Workspace / Apps Script Connection */}
+        {hasGASConfigured ? (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onSyncWorkspace}
+              disabled={isSyncing}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs bg-teal-50 text-teal-800 border border-teal-200 font-bold hover:bg-teal-100 whitespace-nowrap transition-all cursor-pointer shadow-2xs"
+              title="ซิงค์ข้อมูลลง Google Sheets & Google Calendar ผ่าน Google Apps Script"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-teal-600 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span className="hidden lg:inline">ซิงค์ Sheets/Calendar</span>
+            </button>
+            <button
+              onClick={onOpenGoogleModal}
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs border border-teal-200 bg-teal-50/70 hover:bg-teal-100 text-teal-800 font-bold cursor-pointer transition-colors"
+              title="ตั้งค่า Google Apps Script"
+            >
+              <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></span>
+              <span className="text-[11px] font-medium hidden sm:inline">Google Apps Script</span>
+            </button>
+          </div>
+        ) : googleUser ? (
           <div className="flex items-center gap-1">
             <button
               onClick={onSyncWorkspace}
@@ -176,21 +200,21 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden lg:inline">ซิงค์ Sheets/Calendar</span>
             </button>
             <button
-              onClick={onGoogleSignOut}
-              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600"
-              title={`ลงชื่อเข้าใช้ด้วย ${googleUser.email || googleUser.displayName}`}
+              onClick={onOpenGoogleModal}
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold cursor-pointer transition-colors"
+              title={`ตั้งค่าการเชื่อมต่อ Google (${googleUser.email || googleUser.displayName})`}
             >
               <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
               <span className="text-[11px] font-medium hidden sm:inline max-w-[80px] truncate">
-                {googleUser.displayName || 'Google User'}
+                {googleUser.displayName || 'Google'}
               </span>
             </button>
           </div>
         ) : (
           <button
-            onClick={onGoogleSignIn}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-medium shadow-2xs whitespace-nowrap transition-all"
-            title="เชื่อมต่อ Google Sheets & Calendar"
+            onClick={onOpenGoogleModal}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-medium shadow-2xs whitespace-nowrap transition-all cursor-pointer"
+            title="ตั้งค่าเชื่อมต่อ Google Sheets & Calendar"
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
               <path

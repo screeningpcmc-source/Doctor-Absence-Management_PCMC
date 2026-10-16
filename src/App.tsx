@@ -9,6 +9,10 @@ import {
   syncEventToGoogleCalendar,
   deleteGoogleCalendarEvent,
   createOrGetAbsenceSpreadsheet,
+  getSavedGASUrl,
+  syncAllToGAS,
+  saveAbsenceToGAS,
+  deleteAbsenceFromGAS,
 } from './services/googleWorkspace';
 import {
   AbsenceRecord,
@@ -40,6 +44,7 @@ import { AdminSettingsView } from './components/AdminSettingsView';
 import { AbsenceFormModal } from './components/AbsenceFormModal';
 import { EventDetailModal } from './components/EventDetailModal';
 import { PinLoginModal } from './components/PinLoginModal';
+import { GoogleConnectModal } from './components/GoogleConnectModal';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<string>('calendar');
@@ -103,6 +108,17 @@ export default function App() {
     return savedId ? `https://docs.google.com/spreadsheets/d/${savedId}` : null;
   });
 
+  // GAS and Toast notification states
+  const [gasUrl, setGasUrl] = useState<string>(() => getSavedGASUrl());
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast((curr) => (curr?.message === message ? null : curr));
+    }, 4500);
+  }, []);
+
   // Modal states
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
@@ -110,6 +126,7 @@ export default function App() {
   const [editingEvent, setEditingEvent] = useState<AbsenceRecord | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [inspectingEvent, setInspectingEvent] = useState<AbsenceRecord | null>(null);
+  const [isGoogleModalOpen, setIsGoogleModalOpen] = useState(false);
 
   // O(1) Department Map for constant-time lookups across views
   const deptMap = useMemo(() => {
@@ -181,25 +198,56 @@ export default function App() {
       const res = await googleSignIn();
       if (res) {
         setGoogleUser(res.user);
+        setIsGoogleModalOpen(false);
+        showToast(`เข้าสู่ระบบ Google สำเร็จ: ${res.user.displayName || res.user.email}`, 'success');
       }
     } catch (err: any) {
-      alert(`การเชื่อมต่อ Google ล้มเหลว: ${err.message}`);
+      if (err.message && err.message.includes('auth/unauthorized-domain')) {
+        setIsGoogleModalOpen(true);
+      } else {
+        showToast(`การเชื่อมต่อ Google: ${err.message}`, 'error');
+      }
+      throw err;
     }
   };
 
   const handleGoogleSignOut = async () => {
     await googleLogout();
     setGoogleUser(null);
+    showToast('ออกจากระบบ Google เรียบร้อย', 'info');
   };
 
-  // Google Workspace Sync Action
+  // Google Workspace / Apps Script Sync Action
   const handleSyncWorkspace = async () => {
+    const currentGasUrl = getSavedGASUrl();
+    if (currentGasUrl) {
+      setIsSyncing(true);
+      showToast('กำลังซิงค์ข้อมูลลง Google Sheets ผ่าน Google Apps Script...', 'info');
+      try {
+        const res = await syncAllToGAS(currentGasUrl, events, queues, walkInCounts);
+        if (res.success) {
+          showToast(res.message || 'ซิงค์ข้อมูลลง Google Sheets เรียบร้อย 100%!', 'success');
+          if (res.spreadsheetUrl) {
+            setSpreadsheetUrl(res.spreadsheetUrl);
+          }
+        } else {
+          showToast(`ซิงค์ขัดข้อง: ${res.error}`, 'error');
+        }
+      } catch (err: any) {
+        showToast(`เกิดข้อผิดพลาดในการซิงค์: ${err.message}`, 'error');
+      } finally {
+        setIsSyncing(false);
+      }
+      return;
+    }
+
     if (!googleUser) {
-      handleGoogleSignIn();
+      setIsGoogleModalOpen(true);
       return;
     }
 
     setIsSyncing(true);
+    showToast('กำลังซิงค์ข้อมูลกับ Google Sheets & Google Calendar...', 'info');
     try {
       const sheetResult = await createOrGetAbsenceSpreadsheet();
       if (sheetResult) {
@@ -216,13 +264,36 @@ export default function App() {
         }
       }
       setEvents([...events]);
-      alert('ซิงค์ข้อมูลกับ Google Sheets และ Google Calendar เรียบร้อย!');
+      showToast('ซิงค์ข้อมูลกับ Google Sheets และ Google Calendar เรียบร้อย!', 'success');
     } catch (err: any) {
-      alert(`การซิงค์มีข้อผิดพลาด: ${err.message}`);
+      showToast(`การซิงค์มีข้อผิดพลาด: ${err.message}`, 'error');
     } finally {
       setIsSyncing(false);
     }
   };
+
+  const handleImportData = useCallback(
+    (imported: {
+      events?: AbsenceRecord[];
+      queues?: QueueRecord[];
+      walkInCounts?: WalkInCountRecord[];
+    }) => {
+      if (imported.events && imported.events.length > 0) {
+        setEvents(imported.events);
+        localStorage.setItem('app_absence_events', JSON.stringify(imported.events));
+      }
+      if (imported.queues && imported.queues.length > 0) {
+        setQueues(imported.queues);
+        localStorage.setItem('app_queues', JSON.stringify(imported.queues));
+      }
+      if (imported.walkInCounts && imported.walkInCounts.length > 0) {
+        setWalkInCounts(imported.walkInCounts);
+        localStorage.setItem('app_walkin_counts', JSON.stringify(imported.walkInCounts));
+      }
+      showToast('นำเข้าข้อมูลสำเร็จเรียบร้อย', 'success');
+    },
+    [showToast]
+  );
 
   // Queue Operations with 0ms Optimistic UI updates
   const handleDeductQueue = useCallback((date: string, deptId: string, doctorName: string) => {
@@ -404,9 +475,19 @@ export default function App() {
 
     setIsFormModalOpen(false);
     setEditingEvent(null);
+    showToast('บันทึกการงดออกตรวจเรียบร้อยแล้ว', 'success');
 
-    // Asynchronously sync with Google Calendar in background if user is authenticated
-    if (googleUser) {
+    // Asynchronously sync with Google Calendar / Apps Script in background
+    const currentGasUrl = getSavedGASUrl();
+    if (currentGasUrl) {
+      saveAbsenceToGAS(currentGasUrl, record).then((res) => {
+        if (res.calendarEventId) {
+          setEvents((curr) =>
+            curr.map((e) => (e.ID === record.ID ? { ...e, CalendarEventId: res.calendarEventId } : e))
+          );
+        }
+      });
+    } else if (googleUser) {
       syncEventToGoogleCalendar(record).then((calId) => {
         if (calId) {
           setEvents((curr) =>
@@ -427,9 +508,13 @@ export default function App() {
     setEditingEvent(null);
     setIsDetailModalOpen(false);
     setInspectingEvent(null);
+    showToast('ลบรายการงดออกตรวจเรียบร้อยแล้ว', 'info');
 
     // Delete calendar event in background if synced
-    if (googleUser && target.CalendarEventId) {
+    const currentGasUrl = getSavedGASUrl();
+    if (currentGasUrl) {
+      deleteAbsenceFromGAS(currentGasUrl, id, target.CalendarEventId);
+    } else if (googleUser && target.CalendarEventId) {
       deleteGoogleCalendarEvent(target.CalendarEventId);
     }
   };
@@ -464,11 +549,13 @@ export default function App() {
         onPinLogout={handlePinLogout}
         onOpenAddModal={handleOpenAdd}
         googleUser={googleUser}
+        onOpenGoogleModal={() => setIsGoogleModalOpen(true)}
         onGoogleSignIn={handleGoogleSignIn}
         onGoogleSignOut={handleGoogleSignOut}
         isSyncing={isSyncing}
         onSyncWorkspace={handleSyncWorkspace}
         spreadsheetUrl={spreadsheetUrl}
+        hasGASConfigured={Boolean(gasUrl)}
       />
 
       <main className="flex-1 flex flex-col overflow-hidden relative">
@@ -575,6 +662,40 @@ export default function App() {
           handleOpenEdit(evt);
         }}
       />
+
+      <GoogleConnectModal
+        isOpen={isGoogleModalOpen}
+        onClose={() => {
+          setIsGoogleModalOpen(false);
+          setGasUrl(getSavedGASUrl());
+        }}
+        googleUser={googleUser}
+        onGoogleSignIn={handleGoogleSignIn}
+        onGoogleSignOut={handleGoogleSignOut}
+        onSyncWorkspace={handleSyncWorkspace}
+        isSyncing={isSyncing}
+        spreadsheetUrl={spreadsheetUrl}
+        events={events}
+        queues={queues}
+        walkInCounts={walkInCounts}
+        onImportData={handleImportData}
+      />
+
+      {/* Floating Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-xl text-xs font-semibold animate-in fade-in slide-in-from-bottom-3 duration-200 border border-slate-700 bg-slate-900/95 backdrop-blur-xs text-white max-w-sm">
+          <span
+            className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+              toast.type === 'success'
+                ? 'bg-emerald-400 ring-2 ring-emerald-400/30'
+                : toast.type === 'error'
+                ? 'bg-rose-400 ring-2 ring-rose-400/30'
+                : 'bg-teal-400 ring-2 ring-teal-400/30'
+            }`}
+          />
+          <span className="leading-snug">{toast.message}</span>
+        </div>
+      )}
     </div>
   );
 }
