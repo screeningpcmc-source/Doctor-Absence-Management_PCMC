@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Shared hospital collections: Allow read and write for real-time sync across hospital computers
+    match /absence_records/{recordId} {
+      allow read, write: if true;
+    }
+
+    match /walk_in_quotas/{quotaId} {
+      allow read, write: if true;
+    }
+
+    match /daily_walk_in_counts/{countId} {
+      allow read, write: if true;
+    }
+
+    // Fallback for tests and any hospital terminal sync
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

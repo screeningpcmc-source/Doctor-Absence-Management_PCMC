@@ -28,6 +28,7 @@ import {
   syncAllToGAS,
   getSavedGASUrl,
   setSavedGASUrl,
+  getShareableLink,
 } from '../services/googleWorkspace';
 import { FULL_GAS_CODE } from '../services/gasCodeSnippet';
 
@@ -387,10 +388,29 @@ function doPost(e) {
   }
 }`;
 
+  const [copiedShareLink, setCopiedShareLink] = useState(false);
+
   const handleCopyScript = () => {
-    navigator.clipboard.writeText(gasScriptExample);
+    navigator.clipboard.writeText(FULL_GAS_CODE);
     setCopiedScript(true);
     setTimeout(() => setCopiedScript(false), 2000);
+  };
+
+  const handleDownloadScript = () => {
+    const blob = new Blob([FULL_GAS_CODE], { type: 'text/javascript;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Code.gs';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopyShareLink = () => {
+    const link = getShareableLink(gasUrl);
+    navigator.clipboard.writeText(link);
+    setCopiedShareLink(true);
+    setTimeout(() => setCopiedShareLink(false), 2500);
   };
 
   return (
@@ -574,6 +594,26 @@ function doPost(e) {
                 </div>
               </div>
 
+              {/* Multi-Device Sync & Share Link */}
+              <div className="bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-xl p-4 text-xs space-y-2.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="font-bold text-indigo-950 flex items-center gap-2 text-xs sm:text-sm">
+                    <Globe className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span>แชร์ให้เครื่องอื่นใช้งาน (ปฏิทินจะซิงค์ตรงกันทันที 100%)</span>
+                  </div>
+                  <button
+                    onClick={handleCopyShareLink}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-xs shrink-0"
+                  >
+                    {copiedShareLink ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedShareLink ? 'คัดลอกลิงก์แล้ว!' : 'คัดลอกลิงก์แชร์ให้เครื่องอื่น'}</span>
+                  </button>
+                </div>
+                <p className="text-slate-600 text-[11px] leading-relaxed">
+                  💡 <strong>แก้ปัญหาเปิดเครื่องอื่นแล้วปฏิทินไม่อัปเดต:</strong> เพียงคัดลอกลิงก์นี้ส่งทาง LINE หรืออีเมลไปเปิดในคอมพิวเตอร์เครื่องอื่น เครื่องนั้นจะเชื่อมต่อฐานข้อมูล Google Sheets และปฏิทินเดียวกันโดยอัตโนมัติทันที
+                </p>
+              </div>
+
               {/* 3 Steps Guide */}
               <div className="space-y-2.5">
                 <h4 className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
@@ -601,23 +641,33 @@ function doPost(e) {
                   </ol>
                 </div>
 
-                {/* Code Box with Copy */}
+                {/* Code Box with Copy & Download */}
                 <div className="bg-slate-900 rounded-xl p-3.5 text-slate-200 space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-mono font-bold text-teal-300">
-                      โค้ด Apps Script Backend (Code.gs):
+                      โค้ด Apps Script Backend (Code.gs ฉบับสมบูรณ์ 609 บรรทัด):
                     </span>
-                    <button
-                      onClick={handleCopyScript}
-                      className="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg font-bold text-[11px] flex items-center gap-1.5 cursor-pointer transition-colors"
-                    >
-                      {copiedScript ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5" />
-                      )}
-                      {copiedScript ? 'คัดลอกแล้ว' : 'คัดลอกโค้ด'}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleDownloadScript}
+                        className="px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg font-bold text-[11px] flex items-center gap-1.5 cursor-pointer transition-colors"
+                        title="ดาวน์โหลดไฟล์ Code.gs นำไปวางใน Google Apps Script"
+                      >
+                        <Download className="w-3.5 h-3.5 text-teal-300" />
+                        <span>ดาวน์โหลด Code.gs</span>
+                      </button>
+                      <button
+                        onClick={handleCopyScript}
+                        className="px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1.5 cursor-pointer transition-colors"
+                      >
+                        {copiedScript ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-300" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                        <span>{copiedScript ? 'คัดลอกแล้ว' : 'คัดลอกโค้ดทั้งหมด'}</span>
+                      </button>
+                    </div>
                   </div>
                   <pre className="text-[11px] font-mono overflow-x-auto text-slate-300 bg-black/40 p-2.5 rounded-lg max-h-[140px] overflow-y-auto">
                     {gasScriptExample}
@@ -668,6 +718,24 @@ function doPost(e) {
                     <code className="bg-slate-100 px-1 py-0.5 rounded font-bold text-teal-800">{currentHost}</code>{' '}
                     ไปเพิ่มที่ Firebase Console &gt; Authentication &gt; Settings &gt; Authorized domains
                   </p>
+                  <div className="flex flex-wrap items-center gap-2 pt-1.5">
+                    <button
+                      onClick={handleCopyDomain}
+                      className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      {copiedDomain ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-teal-600" />}
+                      <span>{copiedDomain ? 'คัดลอกโดเมนแล้ว' : `คัดลอกชื่อโดเมน: ${currentHost}`}</span>
+                    </button>
+                    <a
+                      href={`https://console.firebase.google.com/u/0/project/${projectId}/authentication/settings`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg font-bold text-xs inline-flex items-center gap-1.5 transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>เปิด Firebase Console: Authorized Domains</span>
+                    </a>
+                  </div>
                 </div>
               </div>
 

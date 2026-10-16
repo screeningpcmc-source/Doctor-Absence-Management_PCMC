@@ -35,6 +35,28 @@ export interface SyncStatus {
 
 export const getSavedGASUrl = (): string => {
   if (typeof window === 'undefined') return '';
+  try {
+    // 1. Auto-detect shared GAS link parameter (?gas=https://script.google.com/...)
+    const urlParams = new URLSearchParams(window.location.search);
+    const queryGas = urlParams.get('gas');
+    if (queryGas && queryGas.includes('script.google.com')) {
+      const clean = queryGas.trim();
+      localStorage.setItem('gas_webapp_url', clean);
+      return clean;
+    }
+    // 2. Also check hash fragment e.g. #gas=...
+    if (window.location.hash.includes('gas=')) {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const hashGas = hashParams.get('gas');
+      if (hashGas && hashGas.includes('script.google.com')) {
+        const clean = hashGas.trim();
+        localStorage.setItem('gas_webapp_url', clean);
+        return clean;
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
   return localStorage.getItem('gas_webapp_url') || '';
 };
 
@@ -46,6 +68,18 @@ export const setSavedGASUrl = (url: string): void => {
   } else {
     localStorage.removeItem('gas_webapp_url');
   }
+};
+
+/**
+ * Generate a shareable link that automatically configures the Google Apps Script
+ * connection when opened on any other computer, iPad, or mobile phone.
+ */
+export const getShareableLink = (gasUrl?: string): string => {
+  if (typeof window === 'undefined') return '';
+  const base = `${window.location.origin}${window.location.pathname}`;
+  const target = gasUrl || getSavedGASUrl();
+  if (!target) return base;
+  return `${base}?gas=${encodeURIComponent(target)}`;
 };
 
 /**

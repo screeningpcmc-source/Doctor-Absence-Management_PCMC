@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Edit3, Stethoscope } from 'lucide-react';
+import { X, Edit3, Stethoscope, Trash2 } from 'lucide-react';
 import { AbsenceRecord, Department } from '../types';
 import { normalizeTimeType } from '../utils/absence-logic';
 
@@ -9,6 +9,7 @@ interface EventDetailModalProps {
   event: AbsenceRecord | null;
   deptMap: Map<string, Department>;
   onEdit: (event: AbsenceRecord) => void;
+  onDelete?: (id: string) => void;
 }
 
 export const EventDetailModal: React.FC<EventDetailModalProps> = ({
@@ -17,6 +18,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
   event,
   deptMap,
   onEdit,
+  onDelete,
 }) => {
   if (!isOpen || !event) return null;
 
@@ -62,6 +64,15 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
       : 'ในเวลาราชการปกติ (08:00-16:00)';
 
   const isUnplanned = event.Reason === 'ลาป่วย' || event.Reason === 'เหตุสุดวิสัย';
+
+  const handleDeleteClick = () => {
+    if (window.confirm('ยืนยันยกเลิกรายการนี้หรือไม่?\n(ข้อมูลการงดออกตรวจและโควตาคิวที่เกี่ยวข้องจะถูกยกเลิกพร้อมกันทั้งสองส่วน)')) {
+      if (onDelete) {
+        onDelete(event.ID);
+      }
+      onClose();
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
@@ -118,8 +129,11 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
           </div>
 
           {event.WalkInQuota && (
-            <div className="flex items-center justify-between py-2 bg-teal-50/50 px-2 rounded-lg">
-              <span className="font-bold text-teal-800 text-xs">🔢 จำกัดโควตาคิว:</span>
+            <div className="flex items-center justify-between py-2 bg-teal-50/70 border border-teal-100 px-3 rounded-lg">
+              <div>
+                <span className="font-bold text-teal-900 text-xs block">🔢 จำกัดโควตาคิว Walk-in:</span>
+                <span className="text-[10px] text-teal-600 font-medium">สัมพันธ์กับแถบโควตาคิวแพทย์ด้านซ้าย</span>
+              </div>
               <span className="font-black text-teal-800 text-base">{event.WalkInQuota} เคส/วัน</span>
             </div>
           )}
@@ -164,8 +178,19 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
 
         {/* Footer */}
         <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex items-center justify-between">
-          <span className="text-[10px] text-slate-400">ID: {event.ID}</span>
-          <div className="flex gap-2">
+          {onDelete ? (
+            <button
+              onClick={handleDeleteClick}
+              className="px-3 py-1.5 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="ยกเลิกรายการนี้และโควตาที่สัมพันธ์กัน"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> ยกเลิกรายการ
+            </button>
+          ) : (
+            <span className="text-[10px] text-slate-400">ID: {event.ID}</span>
+          )}
+
+          <div className="flex gap-2 ml-auto">
             <button
               onClick={onClose}
               className="px-4 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs font-semibold hover:bg-slate-100 cursor-pointer"

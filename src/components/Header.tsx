@@ -10,6 +10,7 @@ import {
   Unlock,
   Stethoscope,
   RefreshCw,
+  Share2,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 
@@ -29,6 +30,7 @@ interface HeaderProps {
   onSyncWorkspace: () => void;
   spreadsheetUrl?: string | null;
   hasGASConfigured?: boolean;
+  onShareLink?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -47,6 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSyncWorkspace,
   spreadsheetUrl,
   hasGASConfigured,
+  onShareLink,
 }) => {
   const isAdmin = authPin === '4217';
 
@@ -167,6 +170,18 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
+        {/* Share Link for other computers */}
+        {onShareLink && (
+          <button
+            onClick={onShareLink}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold transition-all cursor-pointer shadow-2xs"
+            title="คัดลอกลิงก์สำหรับส่งให้คอมพิวเตอร์เครื่องอื่น ปฏิทินจะเชื่อมต่อและอัปเดตตรงกันทันที"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span className="hidden xl:inline">แชร์ให้เครื่องอื่น</span>
+          </button>
+        )}
+
         {/* Google Workspace / Apps Script Connection */}
         {hasGASConfigured ? (
           <div className="flex items-center gap-1">
@@ -177,7 +192,7 @@ export const Header: React.FC<HeaderProps> = ({
               title="ซิงค์ข้อมูลลง Google Sheets & Google Calendar ผ่าน Google Apps Script"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-teal-600 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span className="hidden lg:inline">ซิงค์ Sheets/Calendar</span>
+              <span className="hidden lg:inline">ซิงค์คลาวด์</span>
             </button>
             <button
               onClick={onOpenGoogleModal}
@@ -185,7 +200,7 @@ export const Header: React.FC<HeaderProps> = ({
               title="ตั้งค่า Google Apps Script"
             >
               <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></span>
-              <span className="text-[11px] font-medium hidden sm:inline">Google Apps Script</span>
+              <span className="text-[11px] font-medium hidden sm:inline">Google Sheets</span>
             </button>
           </div>
         ) : googleUser ? (

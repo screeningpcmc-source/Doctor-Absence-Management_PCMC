@@ -1,0 +1,77 @@
+{
+  "entities": {
+    "AbsenceRecord": {
+      "title": "AbsenceRecord",
+      "description": "Doctor absence registration entry at PCMC hospital",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "doctorName": { "type": "string" },
+        "allDay": { "type": "boolean" },
+        "dateStart": { "type": "string" },
+        "timeStart": { "type": "string" },
+        "dateEnd": { "type": "string" },
+        "timeEnd": { "type": "string" },
+        "reason": { "type": "string" },
+        "note": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "calendarEventId": { "type": "string" },
+        "timeType": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "walkInQuota": { "type": "number" },
+        "affectedPatients": { "type": "number" },
+        "replacementDoc": { "type": "string" },
+        "patientManagement": { "type": "string" },
+        "notificationStatus": { "type": "string" },
+        "specialty": { "type": "string" }
+      },
+      "required": ["id", "departmentId", "doctorName", "dateStart", "reason"]
+    },
+    "WalkInQuota": {
+      "title": "WalkInQuota",
+      "description": "Walk-in quota limits per doctor per day",
+      "type": "object",
+      "properties": {
+        "keyDateDeptDoc": { "type": "string" },
+        "date": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "doctorName": { "type": "string" },
+        "maxQuota": { "type": "number" },
+        "currentQuota": { "type": "number" },
+        "lastUpdatedBy": { "type": "string" }
+      },
+      "required": ["keyDateDeptDoc", "date", "departmentId", "doctorName", "maxQuota"]
+    },
+    "DailyWalkInCount": {
+      "title": "DailyWalkInCount",
+      "description": "Daily real-time counter for walk-in patients per department",
+      "type": "object",
+      "properties": {
+        "keyDateDept": { "type": "string" },
+        "date": { "type": "string" },
+        "departmentId": { "type": "string" },
+        "departmentName": { "type": "string" },
+        "count": { "type": "number" },
+        "nurseName": { "type": "string" },
+        "lastUpdated": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["keyDateDept", "date", "departmentId", "count"]
+    }
+  },
+  "firestore": {
+    "/absence_records/{recordId}": {
+      "schema": "AbsenceRecord",
+      "description": "Registered doctor absences shared in real time across all hospital stations"
+    },
+    "/walk_in_quotas/{quotaId}": {
+      "schema": "WalkInQuota",
+      "description": "Doctor walk-in quota records shared across stations"
+    },
+    "/daily_walk_in_counts/{countId}": {
+      "schema": "DailyWalkInCount",
+      "description": "Daily walk-in counts recorded by triage nurses"
+    }
+  }
+}

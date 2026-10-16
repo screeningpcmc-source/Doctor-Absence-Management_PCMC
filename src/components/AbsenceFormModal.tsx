@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { AbsenceRecord, Department } from '../types';
 import { SUB_SPECIALTIES } from '../services/dataStorage';
+import { formatCanonicalDoctorName } from '../utils/absence-logic';
 
 interface AbsenceFormModalProps {
   isOpen: boolean;
@@ -135,7 +136,7 @@ export const AbsenceFormModal: React.FC<AbsenceFormModalProps> = ({
     } else if (isWalkIn && !doctorName.trim()) {
       finalDocName = '-';
     } else {
-      finalDocName = `${prefix} ${doctorName.trim()}`;
+      finalDocName = formatCanonicalDoctorName(prefix, doctorName);
     }
 
     const finalSpecialty = specialty === 'custom' ? customSpecialty.trim() || 'ทั่วไป' : specialty;

@@ -26,6 +26,31 @@ export interface AbsenceRecord {
   Specialty?: string;
 }
 
+/**
+ * Normalizes doctor name for robust cross-matching, eliminating spacing differences,
+ * prefixes with/without spaces (e.g., 'พญ. นลินรัตน์ ศรีสวัสดิ์' vs 'พญ.นลินรัตน์ ศรีสวัสดิ์'),
+ * and redundant prefixes.
+ */
+export function normalizeDoctorName(name?: string): string {
+  if (!name || name === '-' || name.trim() === '') return '-';
+  return name
+    .trim()
+    .replace(/^(นพ\.|พญ\.|ทพ\.|ทญ\.)\s*/, '$1')
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Format canonical doctor name with prefix (consistent without spurious space)
+ */
+export function formatCanonicalDoctorName(prefix: string, name: string): string {
+  const cleanPrefix = (prefix || '').trim();
+  let cleanName = (name || '').trim();
+  if (!cleanName || cleanName === '-') return '-';
+  // Remove prefix if already typed in name input
+  cleanName = cleanName.replace(/^(นพ\.|พญ\.|ทพ\.|ทญ\.)\s*/, '');
+  return `${cleanPrefix}${cleanName}`;
+}
+
 export interface QueueRecord {
   KeyDateDeptDoc: string;
   Date: string;

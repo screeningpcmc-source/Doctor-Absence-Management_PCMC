@@ -10,9 +10,10 @@ import {
   Plus,
   Smile,
   Filter,
+  Trash2,
 } from 'lucide-react';
 import { AbsenceRecord, Department, QueueRecord, HolidayItem } from '../types';
-import { normalizeTimeType } from '../utils/absence-logic';
+import { normalizeTimeType, normalizeDoctorName } from '../utils/absence-logic';
 
 interface CalendarViewProps {
   events: AbsenceRecord[];
@@ -25,6 +26,7 @@ interface CalendarViewProps {
   onOpenEventDetail: (event: AbsenceRecord) => void;
   onDeductQueue: (date: string, deptId: string, doctorName: string) => void;
   onRestoreQueue: (date: string, deptId: string, doctorName: string) => void;
+  onCancelQueue?: (date: string, deptId: string, doctorName: string) => void;
   authPin: string;
 }
 
@@ -39,6 +41,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   onOpenEventDetail,
   onDeductQueue,
   onRestoreQueue,
+  onCancelQueue,
 }) => {
   // Calendar navigation state
   const [currentMonthDate, setCurrentMonthDate] = React.useState<Date>(() => {
@@ -174,14 +177,35 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     return map;
   }, [holidays]);
 
-  // Active queues for selectedDate
+  // Active queues for selectedDate (Strict de-duplication to prevent duplicate cards)
   const activeQueues = useMemo(() => {
-    return queues.filter((q) => {
-      if (q.Date !== selectedDate) return false;
-      if (selectedDeptFilter !== 'all' && q.DepartmentId !== selectedDeptFilter) return false;
-      return true;
-    });
-  }, [queues, selectedDate, selectedDeptFilter]);
+    const map = new Map<string, QueueRecord>();
+    for (const q of queues) {
+      if (q.Date !== selectedDate) continue;
+      if (selectedDeptFilter !== 'all' && q.DepartmentId !== selectedDeptFilter) continue;
+      const key = `${q.Date}_${q.DepartmentId}_${normalizeDoctorName(q.DoctorName)}`;
+      if (!map.has(key)) {
+        map.set(key, q);
+      } else {
+        const existing = map.get(key)!;
+        // Prioritize the queue that matches an event with WalkInQuota
+        const matchEvt = events.find((e) => {
+          const inRange = e.DateStart <= q.Date && (e.DateEnd || e.DateStart) >= q.Date;
+          return (
+            inRange &&
+            e.DepartmentId === q.DepartmentId &&
+            normalizeDoctorName(e.DoctorName) === normalizeDoctorName(q.DoctorName)
+          );
+        });
+        if (matchEvt?.WalkInQuota && Number(matchEvt.WalkInQuota) === q.MaxQuota) {
+          map.set(key, q);
+        } else if (q.MaxQuota > existing.MaxQuota) {
+          map.set(key, q);
+        }
+      }
+    }
+    return Array.from(map.values());
+  }, [queues, selectedDate, selectedDeptFilter, events]);
 
   // Fallback departments to show in queue bar
   const defaultTrackedDeptIds = ['internal', 'surgery', 'pediatric', 'obs', 'ortho', 'cardio'];
@@ -226,28 +250,69 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               text: '#0f766e',
             };
             const currentQ = q.CurrentQuota;
-            const docLabel = q.DoctorName && q.DoctorName !== '-' ? q.DoctorName : 'ระดับแผนก';
+            const docLabel =
+              q.DoctorName && q.DoctorName.trim() !== '' && q.DoctorName !== '-'
+                ? q.DoctorName
+                : `ระดับแผนก (${dpt.name})`;
+
+            const matchingEvt = events.find((e) => {
+              const inRange = e.DateStart <= q.Date && (e.DateEnd || e.DateStart) >= q.Date;
+              const sameDept = e.DepartmentId === q.DepartmentId;
+              const sameDoc =
+                !q.DoctorName ||
+                q.DoctorName === '-' ||
+                normalizeDoctorName(e.DoctorName) === normalizeDoctorName(q.DoctorName);
+              return inRange && sameDept && sameDoc;
+            });
 
             return (
               <div
                 key={q.KeyDateDeptDoc}
-                className="w-full border-2 border-teal-100 bg-teal-50/20 shadow-xs rounded-xl p-2.5 flex flex-col items-center justify-between text-center select-none hover:border-teal-300 transition-all"
+                className="w-full border border-teal-200 bg-gradient-to-b from-teal-50/50 to-white shadow-2xs rounded-xl p-2.5 flex flex-col items-center justify-between text-center select-none hover:border-teal-400 hover:shadow-xs transition-all relative group"
               >
-                <div
-                  className="text-[11px] font-bold w-full py-0.5 rounded px-1 truncate"
-                  style={{ backgroundColor: dpt.bg, color: dpt.text }}
-                >
-                  {dpt.name}
+                <div className="flex items-center justify-between w-full gap-1 mb-1">
+                  <div
+                    onClick={() => matchingEvt && onOpenEventDetail(matchingEvt)}
+                    className="text-[11px] font-bold py-0.5 rounded px-2 truncate flex-1 text-left cursor-pointer hover:opacity-90 shadow-2xs"
+                    style={{ backgroundColor: dpt.bg, color: dpt.text }}
+                    title={matchingEvt ? 'คลิกดูรายละเอียดรายการ' : dpt.name}
+                  >
+                    {dpt.name}
+                  </div>
+                  {onCancelQueue && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (
+                          window.confirm(
+                            `ยืนยันยกเลิกโควตานี้และรายการในปฏิทินที่สัมพันธ์กันหรือไม่?\n\n- แผนก: ${dpt.name}\n- แพทย์: ${docLabel}\n\nระบบจะทำการยกเลิกทั้ง 2 ส่วนพร้อมกัน`
+                          )
+                        ) {
+                          onCancelQueue(q.Date, q.DepartmentId, q.DoctorName);
+                        }
+                      }}
+                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                      title="ยกเลิกโควตานี้ (จะยกเลิกทั้งโควตาและรายการในปฏิทินพร้อมกัน)"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
-                <div className="text-[10px] text-slate-500 font-semibold truncate max-w-full my-0.5" title={docLabel}>
+
+                <div
+                  onClick={() => matchingEvt && onOpenEventDetail(matchingEvt)}
+                  className="text-[11px] text-slate-700 font-semibold truncate max-w-full my-0.5 cursor-pointer hover:text-teal-700"
+                  title={`${docLabel} ${matchingEvt ? '(คลิกดูรายละเอียด)' : ''}`}
+                >
                   {docLabel}
                 </div>
 
-                <div className="flex items-center justify-center gap-2 my-1">
+                <div className="flex items-center justify-center gap-2.5 my-1.5">
                   <button
                     onClick={() => onDeductQueue(q.Date, q.DepartmentId, q.DoctorName)}
-                    className={`text-3xl font-black tracking-tight leading-none transition-transform active:scale-90 cursor-pointer ${
-                      currentQ === 0 ? 'text-rose-500' : 'text-teal-700 hover:text-teal-900'
+                    className={`text-3xl font-black tracking-tight leading-none transition-transform active:scale-95 cursor-pointer ${
+                      currentQ === 0 ? 'text-rose-500' : 'text-teal-700 hover:text-teal-800'
                     }`}
                     title="คลิกเพื่อตัดหักยอดคิว (-1)"
                   >
@@ -255,15 +320,17 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   </button>
                   <button
                     onClick={() => onRestoreQueue(q.Date, q.DepartmentId, q.DoctorName)}
-                    className="p-1 bg-white border border-slate-200 text-teal-700 hover:bg-teal-50 rounded-lg hover:border-teal-300 font-bold active:scale-95 shadow-xs"
+                    className="w-6 h-6 flex items-center justify-center bg-white border border-teal-200 text-teal-700 hover:bg-teal-50 rounded-md hover:border-teal-300 font-bold active:scale-95 shadow-2xs cursor-pointer transition-all"
                     title="คืนคิว (+1)"
                   >
                     <Plus className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
-                <div className="text-[9px] font-bold text-teal-800 bg-teal-100/60 px-2 py-0.5 rounded-full">
-                  จำกัด: {q.MaxQuota} คิว
+                <div className="w-full flex items-center justify-center pt-1 border-t border-teal-100/60 mt-1">
+                  <span className="text-[10px] font-bold text-teal-800 bg-teal-100/70 px-2.5 py-0.5 rounded-full">
+                    จำกัด: {q.MaxQuota} คิว
+                  </span>
                 </div>
               </div>
             );
@@ -421,12 +488,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                         bg: '#f1f5f9',
                         text: '#334155',
                       };
+                      const hasDoc = evt.DoctorName && evt.DoctorName.trim() !== '' && evt.DoctorName !== '-';
                       const isWalkIn = evt.Reason === 'จำกัดเคส walk-in' || evt.Reason === 'ระบบโควตา Walk-in';
                       const label = evt.Reason === 'คลินิกปิดให้บริการ'
                         ? `[ปิด] ${dpt.name}`
                         : isWalkIn
-                        ? `[Q] ${evt.DoctorName || dpt.name}`
-                        : evt.DoctorName || dpt.name;
+                        ? `[Q] ${hasDoc ? evt.DoctorName : dpt.name}`
+                        : hasDoc ? evt.DoctorName : dpt.name;
 
                       return (
                         <div
@@ -542,9 +610,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     <div className="font-bold text-slate-800 text-sm leading-tight">
                       {evt.Reason === 'คลินิกปิดให้บริการ'
                         ? evt.Reason
-                        : evt.DoctorName && evt.DoctorName !== '-'
+                        : evt.DoctorName && evt.DoctorName.trim() !== '' && evt.DoctorName !== '-'
                         ? evt.DoctorName
-                        : 'จำกัดโควตาระดับแผนก'}
+                        : `โควตา Walk-in แผนก${dpt.name}`}
                     </div>
 
                     <div className="text-xs text-slate-600 flex items-center gap-1">
@@ -554,8 +622,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     </div>
 
                     {evt.WalkInQuota && (
-                      <div className="text-[11px] font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-100 w-fit flex items-center gap-1">
-                        <Users className="w-3 h-3 text-teal-600" /> โควตา: {evt.WalkInQuota} เคส
+                      <div className="text-[11px] font-bold text-teal-800 bg-teal-50 px-2.5 py-1 rounded-md border border-teal-200 w-fit flex items-center gap-1.5 shadow-2xs">
+                        <Users className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                        <span>โควตา Walk-in: {evt.WalkInQuota} เคส</span>
                       </div>
                     )}
 

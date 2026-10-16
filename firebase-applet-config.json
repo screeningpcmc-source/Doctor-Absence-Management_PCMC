@@ -3,6 +3,7 @@
   "appId": "1:999682273559:web:3c2726423f0bb177c2c752",
   "apiKey": "AIzaSyCjt5ZG86z_vR1PyTJR-xAyQmqUv14IIeA",
   "authDomain": "gen-lang-client-0454752252.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-doctorabsenceman-fb32a5bf-edf1-4eb2-9f76-e49377a820a7",
   "storageBucket": "gen-lang-client-0454752252.firebasestorage.app",
   "messagingSenderId": "999682273559",
   "measurementId": "",

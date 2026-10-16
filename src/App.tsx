@@ -13,7 +13,21 @@ import {
   syncAllToGAS,
   saveAbsenceToGAS,
   deleteAbsenceFromGAS,
+  fetchAllFromGAS,
+  getShareableLink,
 } from './services/googleWorkspace';
+import {
+  subscribeToAbsences,
+  subscribeToQueues,
+  subscribeToWalkIns,
+  saveAbsenceToFirestore,
+  deleteAbsenceFromFirestore,
+  saveQueueToFirestore,
+  deleteQueueFromFirestore,
+  saveWalkInToFirestore,
+  pushBatchToFirestore,
+  subscribeToBroadcast,
+} from './services/firestoreSync';
 import {
   AbsenceRecord,
   Department,
@@ -34,6 +48,7 @@ import {
   deductQueueQuota,
   restoreQueueQuota,
   adjustAdminQueue,
+  normalizeDoctorName,
 } from './utils/absence-logic';
 import { Header } from './components/Header';
 import { CalendarView } from './components/CalendarView';
@@ -166,6 +181,153 @@ export default function App() {
     }, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  // Cross-Device Sync 1: Real-time Firestore Cloud Synchronization
+  useEffect(() => {
+    let isInitialized = false;
+
+    // Listen to real-time changes across all hospital machines
+    const unsubAbsences = subscribeToAbsences((records) => {
+      if (records) {
+        setEvents(records);
+        isInitialized = true;
+      }
+    });
+
+    const unsubQueues = subscribeToQueues((qList) => {
+      if (qList) {
+        // Automatic deduplication by Date + Dept + normalizeDoctorName
+        const dedupedMap = new Map<string, QueueRecord>();
+        const dupKeysToDelete: string[] = [];
+
+        for (const q of qList) {
+          const normKey = `${q.Date}_${q.DepartmentId}_${normalizeDoctorName(q.DoctorName)}`;
+          if (!dedupedMap.has(normKey)) {
+            dedupedMap.set(normKey, q);
+          } else {
+            const existing = dedupedMap.get(normKey)!;
+            // Prefer the queue that has matching max quota or latest update
+            if (q.MaxQuota >= existing.MaxQuota) {
+              dupKeysToDelete.push(existing.KeyDateDeptDoc);
+              dedupedMap.set(normKey, q);
+            } else {
+              dupKeysToDelete.push(q.KeyDateDeptDoc);
+            }
+          }
+        }
+
+        // Clean up redundant duplicate entries in Firestore in background
+        dupKeysToDelete.forEach((k) => {
+          if (k) deleteQueueFromFirestore(k).catch(() => {});
+        });
+
+        setQueues(Array.from(dedupedMap.values()));
+      }
+    });
+
+    const unsubWalkIns = subscribeToWalkIns((wList) => {
+      if (wList) {
+        setWalkInCounts(wList);
+      }
+    });
+
+    // Cross-tab broadcast listener on same machine (0ms latency between tabs/windows)
+    const unsubBroadcast = subscribeToBroadcast((type, data) => {
+      if (type === 'ABSENCE_SAVED' && data) {
+        setEvents((prev) => {
+          const idx = prev.findIndex((e) => e.ID === data.ID);
+          return idx !== -1 ? prev.map((e) => (e.ID === data.ID ? data : e)) : [data, ...prev];
+        });
+      } else if (type === 'ABSENCE_DELETED' && data) {
+        setEvents((prev) => prev.filter((e) => e.ID !== data.id));
+      } else if (type === 'QUEUE_SAVED' && data) {
+        setQueues((prev) => {
+          const key = data.KeyDateDeptDoc || `${data.Date}_${data.DepartmentId}_${data.DoctorName}`;
+          const normDoc = normalizeDoctorName(data.DoctorName);
+          const filtered = prev.filter(
+            (q) =>
+              q.KeyDateDeptDoc !== key &&
+              !(
+                q.Date === data.Date &&
+                q.DepartmentId === data.DepartmentId &&
+                normalizeDoctorName(q.DoctorName) === normDoc
+              )
+          );
+          return [...filtered, data];
+        });
+      } else if (type === 'QUEUE_DELETED' && data) {
+        setQueues((prev) =>
+          prev.filter(
+            (q) =>
+              q.KeyDateDeptDoc !== data.keyDateDeptDoc &&
+              !q.KeyDateDeptDoc.includes(data.keyDateDeptDoc)
+          )
+        );
+      } else if (type === 'WALKIN_SAVED' && data) {
+        setWalkInCounts((prev) => {
+          const key = data.KeyDateDept || `${data.Date}_${data.DepartmentId}`;
+          const idx = prev.findIndex((w) => w.KeyDateDept === key);
+          return idx !== -1 ? prev.map((w) => (w.KeyDateDept === key ? data : w)) : [...prev, data];
+        });
+      }
+    });
+
+    // If Firestore database is brand new and empty, seed current local records to cloud
+    const seedTimer = setTimeout(() => {
+      if (!isInitialized && events.length > 0) {
+        pushBatchToFirestore(events, queues, walkInCounts).catch(() => {});
+      }
+    }, 2500);
+
+    return () => {
+      clearTimeout(seedTimer);
+      unsubAbsences();
+      unsubQueues();
+      unsubWalkIns();
+      unsubBroadcast();
+    };
+  }, []);
+
+  // Cross-Device Sync 2: Google Apps Script Web App background polling & auto-fetch
+  useEffect(() => {
+    if (!gasUrl) return;
+    let isMounted = true;
+
+    const pullFromGAS = async (quiet = true) => {
+      try {
+        const res = await fetchAllFromGAS(gasUrl);
+        if (isMounted && res.success) {
+          if (res.events && res.events.length > 0) {
+            setEvents(res.events);
+          }
+          if (res.queues && res.queues.length > 0) {
+            setQueues(res.queues);
+          }
+          if (res.walkInCounts && res.walkInCounts.length > 0) {
+            setWalkInCounts(res.walkInCounts);
+          }
+          if (!quiet) {
+            showToast('อัปเดตข้อมูลล่าสุดจาก Google Sheets สำเร็จเรียบร้อย', 'success');
+          }
+        }
+      } catch (err: any) {
+        console.warn('Background GAS sync note:', err.message);
+      }
+    };
+
+    // Immediate pull when opening app on another machine
+    pullFromGAS(true);
+
+    // Auto-refresh every 30 seconds so all computers and stations stay updated
+    const pollInterval = setInterval(() => {
+      pullFromGAS(true);
+    }, 30000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollInterval);
+    };
+  }, [gasUrl]);
 
   // Action authorization helper
   const requirePin = useCallback((action: () => void) => {
@@ -303,7 +465,10 @@ export default function App() {
     }
 
     setQueues((prev) => {
-      const idx = prev.findIndex((q) => q.Date === date && q.DepartmentId === deptId && q.DoctorName === doctorName);
+      const normDoc = normalizeDoctorName(doctorName);
+      const idx = prev.findIndex(
+        (q) => q.Date === date && q.DepartmentId === deptId && normalizeDoctorName(q.DoctorName) === normDoc
+      );
       if (idx === -1) return prev;
       const target = prev[idx];
       const result = deductQueueQuota(target.CurrentQuota, target.MaxQuota);
@@ -312,11 +477,13 @@ export default function App() {
         return prev;
       }
       const next = [...prev];
-      next[idx] = {
+      const updatedQueue = {
         ...target,
         CurrentQuota: result.newQuota,
         LastUpdatedBy: authName || 'เจ้าหน้าที่',
       };
+      next[idx] = updatedQueue;
+      saveQueueToFirestore(updatedQueue).catch(() => {});
       return next;
     });
   }, [authPin, authName, requirePin]);
@@ -328,7 +495,10 @@ export default function App() {
     }
 
     setQueues((prev) => {
-      const idx = prev.findIndex((q) => q.Date === date && q.DepartmentId === deptId && q.DoctorName === doctorName);
+      const normDoc = normalizeDoctorName(doctorName);
+      const idx = prev.findIndex(
+        (q) => q.Date === date && q.DepartmentId === deptId && normalizeDoctorName(q.DoctorName) === normDoc
+      );
       if (idx === -1) return prev;
       const target = prev[idx];
       const result = restoreQueueQuota(target.CurrentQuota, target.MaxQuota);
@@ -337,11 +507,13 @@ export default function App() {
         return prev;
       }
       const next = [...prev];
-      next[idx] = {
+      const updatedQueue = {
         ...target,
         CurrentQuota: result.newQuota,
         LastUpdatedBy: authName || 'เจ้าหน้าที่',
       };
+      next[idx] = updatedQueue;
+      saveQueueToFirestore(updatedQueue).catch(() => {});
       return next;
     });
   }, [authPin, authName, requirePin]);
@@ -354,7 +526,10 @@ export default function App() {
       }
 
       setQueues((prev) => {
-        const idx = prev.findIndex((q) => q.Date === date && q.DepartmentId === deptId && q.DoctorName === doctorName);
+        const normDoc = normalizeDoctorName(doctorName);
+        const idx = prev.findIndex(
+          (q) => q.Date === date && q.DepartmentId === deptId && normalizeDoctorName(q.DoctorName) === normDoc
+        );
         if (idx === -1) return prev;
         const target = prev[idx];
         const res = adjustAdminQueue(target.CurrentQuota, target.MaxQuota, action);
@@ -363,11 +538,13 @@ export default function App() {
           return prev;
         }
         const next = [...prev];
-        next[idx] = {
+        const updatedQueue = {
           ...target,
           CurrentQuota: res.newQuota,
           LastUpdatedBy: authName || 'แอดมิน',
         };
+        next[idx] = updatedQueue;
+        saveQueueToFirestore(updatedQueue).catch(() => {});
         return next;
       });
     },
@@ -384,16 +561,18 @@ export default function App() {
 
         if (idx !== -1) {
           const newCount = Math.max(0, prev[idx].Count + delta);
-          next[idx] = {
+          const updated = {
             ...prev[idx],
             Count: newCount,
             NurseName: nurse,
             LastUpdated: new Date().toISOString(),
             UpdatedBy: authName || 'คัดกรอง',
           };
+          next[idx] = updated;
+          saveWalkInToFirestore(updated).catch(() => {});
         } else {
           const dpt = deptMap.get(deptId);
-          next.push({
+          const newRec: WalkInCountRecord = {
             KeyDateDept: key,
             Date: selectedDate,
             DepartmentId: deptId,
@@ -402,7 +581,9 @@ export default function App() {
             NurseName: nurse,
             LastUpdated: new Date().toISOString(),
             UpdatedBy: authName || 'คัดกรอง',
-          });
+          };
+          next.push(newRec);
+          saveWalkInToFirestore(newRec).catch(() => {});
         }
         return next;
       });
@@ -417,21 +598,27 @@ export default function App() {
         const idx = prev.findIndex((w) => w.KeyDateDept === key);
         if (idx === -1) return prev;
         const next = [...prev];
-        next[idx] = {
+        const updated = {
           ...prev[idx],
           Count: 0,
           NurseName: nurse,
           LastUpdated: new Date().toISOString(),
           UpdatedBy: authName || 'คัดกรอง',
         };
+        next[idx] = updated;
+        saveWalkInToFirestore(updated).catch(() => {});
         return next;
       });
     },
     [selectedDate, authName]
   );
 
-  // Save Absence Event (Create or Update)
+  // Save Absence Event (Create or Update with synchronized Walk-in Quota)
   const handleSaveEvent = async (record: AbsenceRecord) => {
+    // 1. Identify prior record if this was an edit
+    const prevRecord = editingEvent || events.find((e) => e.ID === record.ID);
+
+    // 2. Save/update events state
     setEvents((prev) => {
       const idx = prev.findIndex((e) => e.ID === record.ID);
       if (idx !== -1) {
@@ -442,40 +629,127 @@ export default function App() {
       return [record, ...prev];
     });
 
-    // Create or update queue record if WalkInQuota is present
-    if (record.WalkInQuota && Number(record.WalkInQuota) > 0) {
-      const quotaNum = Number(record.WalkInQuota);
-      const key = `${record.DateStart}_${record.DepartmentId}_${record.DoctorName}`;
-      setQueues((prev) => {
-        const idx = prev.findIndex((q) => q.KeyDateDeptDoc === key);
-        if (idx !== -1) {
-          const next = [...prev];
-          next[idx] = {
-            ...prev[idx],
-            MaxQuota: quotaNum,
-            CurrentQuota: Math.min(prev[idx].CurrentQuota, quotaNum),
-            LastUpdatedBy: authName || 'เจ้าหน้าที่',
-          };
-          return next;
+    // 3. Walk-in quota synchronization and duplicate prevention
+    const hasWalkInQuota = Boolean(record.WalkInQuota && Number(record.WalkInQuota) > 0);
+    const quotaNum = hasWalkInQuota ? Number(record.WalkInQuota) : 0;
+    const normNewDoc = normalizeDoctorName(record.DoctorName);
+    const newKey = `${record.DateStart}_${record.DepartmentId}_${normNewDoc}`;
+
+    const oldNormDoc = prevRecord ? normalizeDoctorName(prevRecord.DoctorName) : null;
+    const oldKey =
+      prevRecord && oldNormDoc
+        ? `${prevRecord.DateStart}_${prevRecord.DepartmentId}_${oldNormDoc}`
+        : null;
+    const oldRawKey = prevRecord
+      ? `${prevRecord.DateStart}_${prevRecord.DepartmentId}_${prevRecord.DoctorName}`
+      : null;
+
+    if (hasWalkInQuota) {
+      // If date, department, or doctor changed from the prior record, remove the obsolete old queue(s)
+      if (oldKey && oldKey !== newKey) {
+        deleteQueueFromFirestore(oldKey).catch(() => {});
+        if (oldRawKey && oldRawKey !== oldKey) {
+          deleteQueueFromFirestore(oldRawKey).catch(() => {});
         }
-        return [
-          ...prev,
-          {
-            KeyDateDeptDoc: key,
-            Date: record.DateStart,
-            DepartmentId: record.DepartmentId,
-            DoctorName: record.DoctorName,
-            MaxQuota: quotaNum,
-            CurrentQuota: quotaNum,
-            LastUpdatedBy: authName || 'เจ้าหน้าที่',
-          },
-        ];
+      }
+
+      setQueues((prev) => {
+        // Filter out obsolete old queues and ANY duplicate matching this slot
+        const filtered = prev.filter((q) => {
+          if (oldKey && oldKey !== newKey) {
+            if (q.KeyDateDeptDoc === oldKey || q.KeyDateDeptDoc === oldRawKey) return false;
+            if (
+              prevRecord &&
+              q.Date === prevRecord.DateStart &&
+              q.DepartmentId === prevRecord.DepartmentId &&
+              normalizeDoctorName(q.DoctorName) === oldNormDoc
+            ) {
+              return false;
+            }
+          }
+          if (q.KeyDateDeptDoc === newKey) return false;
+          if (
+            q.Date === record.DateStart &&
+            q.DepartmentId === record.DepartmentId &&
+            normalizeDoctorName(q.DoctorName) === normNewDoc
+          ) {
+            return false;
+          }
+          return true;
+        });
+
+        // Check if an existing queue existed for this slot to preserve usage deductions
+        const existingQueue = prev.find(
+          (q) =>
+            q.KeyDateDeptDoc === newKey ||
+            (q.Date === record.DateStart &&
+              q.DepartmentId === record.DepartmentId &&
+              normalizeDoctorName(q.DoctorName) === normNewDoc) ||
+            (oldKey && (q.KeyDateDeptDoc === oldKey || q.KeyDateDeptDoc === oldRawKey))
+        );
+
+        let finalCurrentQuota = quotaNum;
+        if (existingQueue) {
+          const used = Math.max(0, existingQueue.MaxQuota - existingQueue.CurrentQuota);
+          if (existingQueue.MaxQuota === quotaNum) {
+            finalCurrentQuota = existingQueue.CurrentQuota;
+          } else {
+            finalCurrentQuota = Math.max(0, quotaNum - used);
+          }
+        }
+
+        const newQueueRecord: QueueRecord = {
+          KeyDateDeptDoc: newKey,
+          Date: record.DateStart,
+          DepartmentId: record.DepartmentId,
+          DoctorName: record.DoctorName,
+          MaxQuota: quotaNum,
+          CurrentQuota: finalCurrentQuota,
+          LastUpdatedBy: authName || 'เจ้าหน้าที่',
+        };
+
+        // Save immediately to Firestore
+        saveQueueToFirestore(newQueueRecord).catch(() => {});
+
+        return [...filtered, newQueueRecord];
       });
+    } else {
+      // Walk-in quota was removed or cancelled (empty, 0, or non-walk-in reason)
+      // Must completely remove and delete the correlated doctor queue quota
+      if (oldKey) {
+        deleteQueueFromFirestore(oldKey).catch(() => {});
+      }
+      if (oldRawKey && oldRawKey !== oldKey) {
+        deleteQueueFromFirestore(oldRawKey).catch(() => {});
+      }
+      deleteQueueFromFirestore(newKey).catch(() => {});
+      deleteQueueFromFirestore(`${record.DateStart}_${record.DepartmentId}_${record.DoctorName}`).catch(() => {});
+
+      setQueues((prev) =>
+        prev.filter((q) => {
+          const matchNew =
+            q.KeyDateDeptDoc === newKey ||
+            (q.Date === record.DateStart &&
+              q.DepartmentId === record.DepartmentId &&
+              normalizeDoctorName(q.DoctorName) === normNewDoc);
+          const matchOld =
+            prevRecord &&
+            (q.KeyDateDeptDoc === oldKey ||
+              q.KeyDateDeptDoc === oldRawKey ||
+              (q.Date === prevRecord.DateStart &&
+                q.DepartmentId === prevRecord.DepartmentId &&
+                normalizeDoctorName(q.DoctorName) === oldNormDoc));
+          return !matchNew && !matchOld;
+        })
+      );
     }
 
     setIsFormModalOpen(false);
     setEditingEvent(null);
-    showToast('บันทึกการงดออกตรวจเรียบร้อยแล้ว', 'success');
+    showToast('บันทึกข้อมูลเรียบร้อยแล้ว (อัปเดตโควตาและปฏิทินสัมพันธ์กันทันที)', 'success');
+
+    // Save to Firestore real-time cloud (synchronizes all computers immediately)
+    saveAbsenceToFirestore(record).catch(() => {});
 
     // Asynchronously sync with Google Calendar / Apps Script in background
     const currentGasUrl = getSavedGASUrl();
@@ -498,17 +772,61 @@ export default function App() {
     }
   };
 
-  // Delete Absence Event with User Confirmation (Mandatory for Destructive Actions)
+  // Delete Absence Event with Correlated Quota Deletion (Both Parts Cancelled Together)
   const handleDeleteEvent = async (id: string) => {
     const target = events.find((e) => e.ID === id);
     if (!target) return;
 
+    // 1. Remove from events state
     setEvents((prev) => prev.filter((e) => e.ID !== id));
+
+    // 2. Remove matching quota(s) from queues state across affected date range
+    const targetDates = [target.DateStart];
+    if (target.DateEnd && target.DateEnd !== target.DateStart) {
+      const [sy, sm, sd] = target.DateStart.split('-').map(Number);
+      const [ey, em, ed] = target.DateEnd.split('-').map(Number);
+      const cur = new Date(Date.UTC(sy, sm - 1, sd));
+      const stop = new Date(Date.UTC(ey, em - 1, ed));
+      while (cur <= stop) {
+        const y = cur.getUTCFullYear();
+        const m = String(cur.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(cur.getUTCDate()).padStart(2, '0');
+        const dStr = `${y}-${m}-${d}`;
+        if (!targetDates.includes(dStr)) targetDates.push(dStr);
+        cur.setUTCDate(cur.getUTCDate() + 1);
+      }
+    }
+
+    const normTargetDoc = normalizeDoctorName(target.DoctorName);
+
+    setQueues((prev) =>
+      prev.filter((q) => {
+        const isDateMatch = targetDates.includes(q.Date);
+        const isDeptMatch = q.DepartmentId === target.DepartmentId;
+        const isDocMatch =
+          !target.DoctorName || target.DoctorName === '-'
+            ? true
+            : normalizeDoctorName(q.DoctorName) === normTargetDoc;
+        return !(isDateMatch && isDeptMatch && isDocMatch);
+      })
+    );
+
     setIsFormModalOpen(false);
     setEditingEvent(null);
     setIsDetailModalOpen(false);
     setInspectingEvent(null);
-    showToast('ลบรายการงดออกตรวจเรียบร้อยแล้ว', 'info');
+    showToast('ยกเลิกรายการงดออกตรวจและโควตาคิวที่สัมพันธ์กันเรียบร้อยแล้ว', 'info');
+
+    // 3. Delete from Firestore real-time cloud for both absence and walk-in quota collections
+    deleteAbsenceFromFirestore(id).catch(() => {});
+    for (const d of targetDates) {
+      const qKey = `${d}_${target.DepartmentId}_${target.DoctorName}`;
+      const normKey = `${d}_${target.DepartmentId}_${normTargetDoc}`;
+      deleteQueueFromFirestore(qKey).catch(() => {});
+      if (normKey !== qKey) {
+        deleteQueueFromFirestore(normKey).catch(() => {});
+      }
+    }
 
     // Delete calendar event in background if synced
     const currentGasUrl = getSavedGASUrl();
@@ -517,6 +835,55 @@ export default function App() {
     } else if (googleUser && target.CalendarEventId) {
       deleteGoogleCalendarEvent(target.CalendarEventId);
     }
+  };
+
+  // Cancel Quota from Left Sidebar (Both Parts Cancelled Together)
+  const handleCancelQueue = useCallback(
+    (date: string, deptId: string, doctorName: string) => {
+      const qKey = `${date}_${deptId}_${doctorName}`;
+      const normDoc = normalizeDoctorName(doctorName);
+      const normKey = `${date}_${deptId}_${normDoc}`;
+
+      // 1. Remove from queues state
+      setQueues((prev) =>
+        prev.filter(
+          (q) =>
+            q.KeyDateDeptDoc !== qKey &&
+            q.KeyDateDeptDoc !== normKey &&
+            !(q.Date === date && q.DepartmentId === deptId && normalizeDoctorName(q.DoctorName) === normDoc)
+        )
+      );
+
+      // 2. Find matching events on that date and remove them too
+      const matchingEvents = events.filter((e) => {
+        const inRange = e.DateStart <= date && (e.DateEnd || e.DateStart) >= date;
+        const sameDept = e.DepartmentId === deptId;
+        const sameDoc = !doctorName || doctorName === '-' ? true : normalizeDoctorName(e.DoctorName) === normDoc;
+        return inRange && sameDept && sameDoc;
+      });
+
+      if (matchingEvents.length > 0) {
+        const matchingIds = matchingEvents.map((e) => e.ID);
+        setEvents((prev) => prev.filter((e) => !matchingIds.includes(e.ID)));
+        matchingIds.forEach((mId) => {
+          deleteAbsenceFromFirestore(mId).catch(() => {});
+        });
+      }
+
+      // 3. Delete from Firestore
+      deleteQueueFromFirestore(qKey).catch(() => {});
+      if (normKey !== qKey) {
+        deleteQueueFromFirestore(normKey).catch(() => {});
+      }
+      showToast('ยกเลิกโควตาและรายการในปฏิทินที่สัมพันธ์กันเรียบร้อยแล้ว', 'info');
+    },
+    [events, showToast]
+  );
+
+  const handleShareLink = () => {
+    const shareUrl = getShareableLink(gasUrl);
+    navigator.clipboard.writeText(shareUrl);
+    showToast('คัดลอกลิงก์สำหรับส่งให้คอมพิวเตอร์เครื่องอื่นเรียบร้อยแล้ว! (ปฏิทินจะซิงค์ตรงกันทันที)', 'success');
   };
 
   const handleOpenEdit = (record: AbsenceRecord) => {
@@ -556,6 +923,7 @@ export default function App() {
         onSyncWorkspace={handleSyncWorkspace}
         spreadsheetUrl={spreadsheetUrl}
         hasGASConfigured={Boolean(gasUrl)}
+        onShareLink={handleShareLink}
       />
 
       <main className="flex-1 flex flex-col overflow-hidden relative">
@@ -571,6 +939,7 @@ export default function App() {
             onOpenEventDetail={handleOpenDetail}
             onDeductQueue={handleDeductQueue}
             onRestoreQueue={handleRestoreQueue}
+            onCancelQueue={handleCancelQueue}
             authPin={authPin}
           />
         )}
@@ -661,6 +1030,7 @@ export default function App() {
           setIsDetailModalOpen(false);
           handleOpenEdit(evt);
         }}
+        onDelete={handleDeleteEvent}
       />
 
       <GoogleConnectModal
