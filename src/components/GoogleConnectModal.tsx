@@ -29,6 +29,7 @@ import {
   getSavedGASUrl,
   setSavedGASUrl,
 } from '../services/googleWorkspace';
+import { FULL_GAS_CODE } from '../services/gasCodeSnippet';
 
 interface GoogleConnectModalProps {
   isOpen: boolean;
