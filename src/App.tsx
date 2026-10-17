@@ -615,6 +615,11 @@ export default function App() {
 
   // Save Absence Event (Create or Update with synchronized Walk-in Quota)
   const handleSaveEvent = async (record: AbsenceRecord) => {
+    if (!authPin || !authName) {
+      requirePin(() => handleSaveEvent(record));
+      return;
+    }
+
     // 1. Identify prior record if this was an edit
     const prevRecord = editingEvent || events.find((e) => e.ID === record.ID);
 
@@ -774,6 +779,11 @@ export default function App() {
 
   // Delete Absence Event with Correlated Quota Deletion (Both Parts Cancelled Together)
   const handleDeleteEvent = async (id: string) => {
+    if (!authPin || !authName) {
+      requirePin(() => handleDeleteEvent(id));
+      return;
+    }
+
     const target = events.find((e) => e.ID === id);
     if (!target) return;
 
@@ -840,6 +850,11 @@ export default function App() {
   // Cancel Quota from Left Sidebar (Both Parts Cancelled Together)
   const handleCancelQueue = useCallback(
     (date: string, deptId: string, doctorName: string) => {
+      if (!authPin || !authName) {
+        requirePin(() => handleCancelQueue(date, deptId, doctorName));
+        return;
+      }
+
       const qKey = `${date}_${deptId}_${doctorName}`;
       const normDoc = normalizeDoctorName(doctorName);
       const normKey = `${date}_${deptId}_${normDoc}`;
@@ -1026,6 +1041,9 @@ export default function App() {
         }}
         event={inspectingEvent}
         deptMap={deptMap}
+        authName={authName}
+        authPin={authPin}
+        onRequirePin={requirePin}
         onEdit={(evt) => {
           setIsDetailModalOpen(false);
           handleOpenEdit(evt);

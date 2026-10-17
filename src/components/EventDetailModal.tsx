@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Edit3, Stethoscope, Trash2 } from 'lucide-react';
+import { X, Edit3, Stethoscope, Trash2, Lock, ShieldCheck } from 'lucide-react';
 import { AbsenceRecord, Department } from '../types';
 import { normalizeTimeType } from '../utils/absence-logic';
 
@@ -10,6 +10,9 @@ interface EventDetailModalProps {
   deptMap: Map<string, Department>;
   onEdit: (event: AbsenceRecord) => void;
   onDelete?: (id: string) => void;
+  authName?: string;
+  authPin?: string;
+  onRequirePin?: (action: () => void) => void;
 }
 
 export const EventDetailModal: React.FC<EventDetailModalProps> = ({
@@ -19,8 +22,13 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
   deptMap,
   onEdit,
   onDelete,
+  authName,
+  authPin,
+  onRequirePin,
 }) => {
   if (!isOpen || !event) return null;
+
+  const isLoggedIn = Boolean(authPin && authName);
 
   const dpt = deptMap.get(event.DepartmentId) || {
     name: event.DepartmentId,
@@ -66,12 +74,53 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
   const isUnplanned = event.Reason === 'ลาป่วย' || event.Reason === 'เหตุสุดวิสัย';
 
   const handleDeleteClick = () => {
-    if (window.confirm('ยืนยันยกเลิกรายการนี้หรือไม่?\n(ข้อมูลการงดออกตรวจและโควตาคิวที่เกี่ยวข้องจะถูกยกเลิกพร้อมกันทั้งสองส่วน)')) {
+    if (!isLoggedIn) {
+      if (onRequirePin) {
+        onRequirePin(() => {
+          // Re-trigger deletion after login
+          if (
+            window.confirm(
+              `ยืนยันยกเลิกรายการนี้หรือไม่?\n\n- แผนก: ${deptDisplayName}\n- แพทย์: ${doctorTitle}\n\n(ข้อมูลการงดออกตรวจและโควตาคิวที่เกี่ยวข้องจะถูกยกเลิกพร้อมกันทั้งสองส่วน)`
+            )
+          ) {
+            if (onDelete) {
+              onDelete(event.ID);
+            }
+            onClose();
+          }
+        });
+      } else {
+        alert('กรุณาเข้าสู่ระบบด้วยรหัส PIN ก่อนยกเลิกหรือลบรายการ');
+      }
+      return;
+    }
+
+    if (
+      window.confirm(
+        `ยืนยันยกเลิกรายการนี้หรือไม่?\n\n- แผนก: ${deptDisplayName}\n- แพทย์: ${doctorTitle}\n- ผู้ทำรายการ: ${authName}\n\n(ข้อมูลการงดออกตรวจและโควตาคิวที่เกี่ยวข้องจะถูกยกเลิกพร้อมกันทั้งสองส่วน)`
+      )
+    ) {
       if (onDelete) {
         onDelete(event.ID);
       }
       onClose();
     }
+  };
+
+  const handleEditClick = () => {
+    if (!isLoggedIn) {
+      if (onRequirePin) {
+        onRequirePin(() => {
+          onClose();
+          onEdit(event);
+        });
+      } else {
+        alert('กรุณาเข้าสู่ระบบด้วยรหัส PIN ก่อนแก้ไขข้อมูล');
+      }
+      return;
+    }
+    onClose();
+    onEdit(event);
   };
 
   return (
@@ -98,7 +147,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
           <div className="flex items-center justify-between pb-2">
             <span className="font-bold text-slate-400 text-xs">🏥 แผนกตรวจ:</span>
             <span
-              className="px-2.5 py-0.5 rounded-md text-xs font-black tracking-wide"
+              className="font-bold px-2.5 py-1 rounded text-xs"
               style={{ backgroundColor: dpt.bg, color: dpt.text }}
             >
               {deptDisplayName}
@@ -107,9 +156,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
 
           <div className="flex items-center justify-between py-2">
             <span className="font-bold text-slate-400 text-xs">📅 วันที่งดตรวจ:</span>
-            <span className="font-bold text-slate-800 bg-slate-50 px-2 py-0.5 rounded border border-slate-100 text-xs">
-              {dateDisplay}
-            </span>
+            <span className="font-bold text-slate-800">{dateDisplay}</span>
           </div>
 
           <div className="flex items-center justify-between py-2">
@@ -118,10 +165,10 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
           </div>
 
           <div className="flex items-center justify-between py-2">
-            <span className="font-bold text-slate-400 text-xs">⚠️ เหตุผล:</span>
+            <span className="font-bold text-slate-400 text-xs">📋 สาเหตุการงด:</span>
             <span
-              className={`font-bold px-2 py-0.5 rounded text-xs border ${
-                isUnplanned ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200'
+              className={`font-bold px-2 py-0.5 rounded text-xs ${
+                isUnplanned ? 'bg-rose-50 text-rose-700' : 'bg-blue-50 text-blue-700'
               }`}
             >
               {event.Reason}
@@ -144,27 +191,19 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
           </div>
 
           <div className="flex items-center justify-between py-2">
-            <span className="font-bold text-slate-400 text-xs">🤝 แพทย์ตรวจแทน:</span>
-            <span className="font-bold text-emerald-800 text-xs">
-              {event.ReplacementDoc && event.ReplacementDoc.trim() !== '' && event.ReplacementDoc !== 'ไม่มี'
-                ? `🏥 ${event.ReplacementDoc}`
-                : '⚠️ ไม่มีแพทย์ตรวจแทน'}
-            </span>
+            <span className="font-bold text-slate-400 text-xs">🔄 การจัดการคนไข้:</span>
+            <span className="font-semibold text-slate-700 text-xs">{event.PatientManagement || '-'}</span>
           </div>
 
-          {event.PatientManagement && (
-            <div className="flex items-center justify-between py-2">
-              <span className="font-bold text-slate-400 text-xs">🗂️ การจัดคิวนัด:</span>
-              <span className="font-semibold text-slate-700 text-xs">{event.PatientManagement}</span>
-            </div>
-          )}
+          <div className="flex items-center justify-between py-2">
+            <span className="font-bold text-slate-400 text-xs">👨‍⚕️ แพทย์ตรวจแทน:</span>
+            <span className="font-semibold text-slate-700 text-xs">{event.ReplacementDoc || 'ไม่มี'}</span>
+          </div>
 
-          {event.NotificationStatus && (
-            <div className="flex items-center justify-between py-2">
-              <span className="font-bold text-slate-400 text-xs">📞 สถานะโทรแจ้ง:</span>
-              <span className="font-bold text-slate-700 text-xs">{event.NotificationStatus}</span>
-            </div>
-          )}
+          <div className="flex items-center justify-between py-2">
+            <span className="font-bold text-slate-400 text-xs">📢 สถานะแจ้งคนไข้:</span>
+            <span className="font-semibold text-slate-700 text-xs">{event.NotificationStatus || '-'}</span>
+          </div>
 
           {event.Note && (
             <div className="pt-2 text-xs">
@@ -177,20 +216,31 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex items-center justify-between">
-          {onDelete ? (
-            <button
-              onClick={handleDeleteClick}
-              className="px-3 py-1.5 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
-              title="ยกเลิกรายการนี้และโควตาที่สัมพันธ์กัน"
-            >
-              <Trash2 className="w-3.5 h-3.5" /> ยกเลิกรายการ
-            </button>
-          ) : (
-            <span className="text-[10px] text-slate-400">ID: {event.ID}</span>
-          )}
+        <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2">
+            {onDelete && (
+              <button
+                onClick={handleDeleteClick}
+                className="px-3 py-1.5 text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                title={isLoggedIn ? 'ยกเลิกรายการนี้และโควตาที่สัมพันธ์กัน' : 'ต้องเข้าสู่ระบบ PIN ก่อนยกเลิกรายการ'}
+              >
+                {isLoggedIn ? <Trash2 className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5 text-rose-500" />}
+                <span>ยกเลิกรายการ</span>
+              </button>
+            )}
 
-          <div className="flex gap-2 ml-auto">
+            {!isLoggedIn ? (
+              <span className="text-[10px] text-amber-700 font-bold bg-amber-50 border border-amber-200 px-2 py-0.5 rounded flex items-center gap-1">
+                <Lock className="w-3 h-3 text-amber-500" /> โหมดดูข้อมูล
+              </span>
+            ) : (
+              <span className="text-[10px] text-emerald-800 font-bold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3 text-emerald-600" /> {authName}
+              </span>
+            )}
+          </div>
+
+          <div className="flex gap-2 ml-auto w-full sm:w-auto justify-end">
             <button
               onClick={onClose}
               className="px-4 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs font-semibold hover:bg-slate-100 cursor-pointer"
@@ -198,13 +248,12 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
               ปิดหน้าต่าง
             </button>
             <button
-              onClick={() => {
-                onClose();
-                onEdit(event);
-              }}
-              className="px-4 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer"
+              onClick={handleEditClick}
+              className="px-4 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
+              title={isLoggedIn ? 'แก้ไขข้อมูลรายการนี้' : 'ต้องเข้าสู่ระบบ PIN ก่อนแก้ไขข้อมูล'}
             >
-              <Edit3 className="w-3.5 h-3.5" /> แก้ไขข้อมูล
+              {isLoggedIn ? <Edit3 className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5 text-teal-200" />}
+              <span>แก้ไขข้อมูล</span>
             </button>
           </div>
         </div>

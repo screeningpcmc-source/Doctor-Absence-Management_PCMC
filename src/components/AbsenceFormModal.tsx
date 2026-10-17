@@ -125,6 +125,10 @@ export const AbsenceFormModal: React.FC<AbsenceFormModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!authName) {
+      alert('กรุณาเข้าสู่ระบบด้วยรหัส PIN ก่อนบันทึกข้อมูล');
+      return;
+    }
     if (!deptId) {
       alert('กรุณาเลือกแผนก');
       return;
@@ -483,6 +487,10 @@ export const AbsenceFormModal: React.FC<AbsenceFormModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
+                  if (!authName) {
+                    alert('กรุณาเข้าสู่ระบบด้วยรหัส PIN ก่อนลบรายการ');
+                    return;
+                  }
                   if (window.confirm('คุณแน่ใจหรือไม่ว่าต้องการลบรายการนี้? การกระทำนี้ไม่สามารถย้อนกลับได้')) {
                     onDelete(initialData.ID);
                   }
