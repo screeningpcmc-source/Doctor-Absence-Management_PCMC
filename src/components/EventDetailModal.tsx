@@ -128,7 +128,7 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
             </span>
           </div>
 
-          {event.WalkInQuota && (
+          {Boolean(event.WalkInQuota && Number(event.WalkInQuota) > 0) && (
             <div className="flex items-center justify-between py-2 bg-teal-50/70 border border-teal-100 px-3 rounded-lg">
               <div>
                 <span className="font-bold text-teal-900 text-xs block">🔢 จำกัดโควตาคิว Walk-in:</span>

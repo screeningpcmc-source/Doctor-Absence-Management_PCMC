@@ -599,7 +599,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       <span className="font-semibold text-slate-700">{evt.Reason}</span>
                     </div>
 
-                    {evt.WalkInQuota && (
+                    {Boolean(evt.WalkInQuota && Number(evt.WalkInQuota) > 0) && (
                       <div className="text-[11px] font-bold text-teal-800 bg-teal-50 px-2.5 py-1 rounded-md border border-teal-200 w-fit flex items-center gap-1.5 shadow-2xs">
                         <Users className="w-3.5 h-3.5 text-teal-600 shrink-0" />
                         <span>โควตา Walk-in: {evt.WalkInQuota} เคส</span>

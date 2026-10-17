@@ -270,7 +270,7 @@ export const ListView: React.FC<ListViewProps> = ({
                       </span>
                     </div>
 
-                    {evt.WalkInQuota && (
+                    {Boolean(evt.WalkInQuota && Number(evt.WalkInQuota) > 0) && (
                       <div className="flex items-center gap-2">
                         <Users className="w-3.5 h-3.5 text-teal-600 shrink-0" />
                         <span className="font-medium text-slate-500">จำกัดคิว:</span>
