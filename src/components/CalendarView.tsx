@@ -238,6 +238,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         <div className="text-center pb-2.5 mb-2.5 border-b border-slate-100">
           <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">โควตาคิวแพทย์/หน่วย</div>
           <div className="text-[10px] text-teal-700 font-semibold mt-0.5">{formatThaiDate(selectedDate)}</div>
+          {holidaysByDate.get(selectedDate) && (
+            <div
+              className="text-[10px] bg-rose-50 text-rose-700 font-bold px-2 py-0.5 rounded border border-rose-200 mt-1 inline-block text-center max-w-full truncate shadow-2xs"
+              title={`วันหยุดนักขัตฤกษ์ตาม Google Calendar: ${holidaysByDate.get(selectedDate)!.title}`}
+            >
+              🎌 {holidaysByDate.get(selectedDate)!.title}
+            </div>
+          )}
         </div>
 
         <div className="space-y-3 flex flex-col items-center w-full">
@@ -368,9 +376,17 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               </button>
             </div>
 
-            <h2 className="text-base md:text-lg font-black text-slate-800 tracking-tight">
-              {monthNamesThai[month]} {year + 543}
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base md:text-lg font-black text-slate-800 tracking-tight">
+                {monthNamesThai[month]} {year + 543}
+              </h2>
+              <span
+                className="hidden lg:inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full shadow-2xs"
+                title="วันหยุดนักขัตฤกษ์อ้างอิงตาม Google Calendar ของประเทศไทยทั้งหมด (th.th#holiday@group.v.calendar.google.com)"
+              >
+                <span>🎌</span> วันหยุดตาม Google Calendar
+              </span>
+            </div>
 
             {/* Department Filter Selector */}
             <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 shadow-2xs">
@@ -428,6 +444,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   className={`min-h-[70px] p-1.5 rounded-lg border transition-all cursor-pointer flex flex-col justify-between overflow-hidden ${
                     isSelected
                       ? 'border-teal-500 bg-teal-50/40 ring-2 ring-teal-200'
+                      : holiday
+                      ? 'bg-rose-50/40 border-rose-200 hover:border-rose-300'
                       : cell.isSun
                       ? 'bg-rose-50/30 border-rose-100'
                       : cell.isSat
@@ -442,7 +460,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       className={`text-xs font-black ${
                         isSelected
                           ? 'text-teal-700 underline font-black'
-                          : cell.isSun
+                          : holiday || cell.isSun
                           ? 'text-rose-600'
                           : cell.isSat
                           ? 'text-violet-600'
@@ -452,8 +470,12 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       {cell.dayNumber}
                     </span>
                     {holiday && (
-                      <span className="text-[9px] bg-rose-100 text-rose-800 font-bold px-1 rounded truncate max-w-[65px]" title={holiday.title}>
-                        {holiday.title}
+                      <span
+                        className="text-[9px] bg-rose-100 text-rose-800 font-bold px-1.5 py-0.5 rounded truncate max-w-[85px] border border-rose-200/80 shadow-2xs flex items-center gap-0.5"
+                        title={`วันหยุดนักขัตฤกษ์ (Google Calendar): ${holiday.title}`}
+                      >
+                        <span className="text-[8px]">🎌</span>
+                        <span className="truncate">{holiday.title}</span>
                       </span>
                     )}
                   </div>
@@ -511,6 +533,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           <div className="text-teal-800 font-bold text-xs bg-teal-50 px-3 py-1 rounded-full mt-1.5 border border-teal-100 inline-block">
             {formatThaiDate(selectedDate)}
           </div>
+          {holidaysByDate.get(selectedDate) && (
+            <div
+              className="mt-2 flex items-center justify-center gap-1.5 bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold px-3 py-1.5 rounded-lg shadow-2xs"
+              title="วันหยุดนักขัตฤกษ์ตาม Google Calendar ประเทศไทย"
+            >
+              <span>🎌</span>
+              <span className="truncate">{holidaysByDate.get(selectedDate)!.title}</span>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-slate-50/50">
@@ -531,17 +562,34 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
           {agendaEvents.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-slate-400 p-4 text-center mt-12">
-              <Smile className="w-10 h-10 mb-2 text-slate-300" />
-              <p className="text-xs font-bold text-slate-600">
-                {selectedDeptFilter !== 'all'
-                  ? `ไม่มีรายงานแพทย์งดออกตรวจของแผนก ${deptMap.get(selectedDeptFilter)?.name || ''}`
-                  : 'คลินิกเปิดทำการตามปกติ'}
-              </p>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                {selectedDeptFilter !== 'all'
-                  ? 'ในวันที่เลือกนี้เปิดให้บริการตามปกติ'
-                  : 'ไม่มีรายงานแพทย์งดออกตรวจในวันนี้'}
-              </p>
+              {holidaysByDate.get(selectedDate) ? (
+                <>
+                  <div className="text-3xl mb-2">🎌</div>
+                  <p className="text-xs font-bold text-rose-700">
+                    วันหยุดนักขัตฤกษ์ (Google Calendar ไทย)
+                  </p>
+                  <p className="text-sm font-black text-rose-900 mt-1">
+                    {holidaysByDate.get(selectedDate)!.title}
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-1 max-w-[220px]">
+                    วันหยุดราชการตามปฏิทิน Google Calendar / แผนกเปิดตรวจตามเวรวันหยุด
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Smile className="w-10 h-10 mb-2 text-slate-300" />
+                  <p className="text-xs font-bold text-slate-600">
+                    {selectedDeptFilter !== 'all'
+                      ? `ไม่มีรายงานแพทย์งดออกตรวจของแผนก ${deptMap.get(selectedDeptFilter)?.name || ''}`
+                      : 'คลินิกเปิดทำการตามปกติ'}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {selectedDeptFilter !== 'all'
+                      ? 'ในวันที่เลือกนี้เปิดให้บริการตามปกติ'
+                      : 'ไม่มีรายงานแพทย์งดออกตรวจในวันนี้'}
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             agendaEvents.map((evt) => {

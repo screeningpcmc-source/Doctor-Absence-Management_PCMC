@@ -259,22 +259,4 @@ export function getInitialWalkInCounts(): WalkInCountRecord[] {
   ];
 }
 
-export function getHolidays(): HolidayItem[] {
-  return [
-    { id: 'hol_1', title: 'วันขึ้นปีใหม่', start: '2026-01-01' },
-    { id: 'hol_2', title: 'วันมาฆบูชา', start: '2026-03-03' },
-    { id: 'hol_3', title: 'วันจักรี', start: '2026-04-06' },
-    { id: 'hol_4', title: 'วันสงกรานต์', start: '2026-04-13' },
-    { id: 'hol_5', title: 'วันสงกรานต์', start: '2026-04-14' },
-    { id: 'hol_6', title: 'วันสงกรานต์', start: '2026-04-15' },
-    { id: 'hol_7', title: 'วันแรงงานแห่งชาติ', start: '2026-05-01' },
-    { id: 'hol_8', title: 'วันวิสาขบูชา', start: '2026-05-31' },
-    { id: 'hol_9', title: 'วันเฉลิมพระชนมพรรษา', start: '2026-07-28' },
-    { id: 'hol_10', title: 'วันแม่แห่งชาติ', start: '2026-08-12' },
-    { id: 'hol_11', title: 'วันนวมินทรมหาราช', start: '2026-10-13' },
-    { id: 'hol_12', title: 'วันปิยมหาราช', start: '2026-10-23' },
-    { id: 'hol_13', title: 'วันพ่อแห่งชาติ', start: '2026-12-05' },
-    { id: 'hol_14', title: 'วันรัฐธรรมนูญ', start: '2026-12-10' },
-    { id: 'hol_15', title: 'วันสิ้นปี', start: '2026-12-31' },
-  ];
-}
+export { getHolidays } from './holidaysService';

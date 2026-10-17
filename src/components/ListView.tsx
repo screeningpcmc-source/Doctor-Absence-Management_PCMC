@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { AbsenceRecord, Department } from '../types';
 import { normalizeTimeType } from '../utils/absence-logic';
+import { getHolidayForDate } from '../services/holidaysService';
 
 interface ListViewProps {
   events: AbsenceRecord[];
@@ -261,6 +262,13 @@ export const ListView: React.FC<ListViewProps> = ({
                       <span className="font-medium text-slate-500">วันที่:</span>
                       <span className="font-bold text-teal-800">{dateStr}</span>
                     </div>
+
+                    {Boolean(getHolidayForDate(evt.DateStart) || (evt.DateEnd && getHolidayForDate(evt.DateEnd))) && (
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200/80 w-fit">
+                        <span>🎌</span>
+                        <span>{getHolidayForDate(evt.DateStart)?.title || (evt.DateEnd ? getHolidayForDate(evt.DateEnd)?.title : '')}</span>
+                      </div>
+                    )}
 
                     <div className="flex items-center gap-2">
                       <AlertCircle className="w-3.5 h-3.5 text-slate-400 shrink-0" />

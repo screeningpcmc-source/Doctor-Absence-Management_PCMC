@@ -43,6 +43,7 @@ import {
   getInitialWalkInCounts,
   getHolidays,
 } from './services/dataStorage';
+import { syncGoogleCalendarHolidays } from './services/holidaysService';
 import {
   getOperationalToday,
   deductQueueQuota,
@@ -111,7 +112,16 @@ export default function App() {
     }
   });
 
-  const holidays: HolidayItem[] = useMemo(() => getHolidays(), []);
+  const [holidays, setHolidays] = useState<HolidayItem[]>(() => getHolidays());
+
+  // Background sync for Google Calendar Thailand holidays
+  useEffect(() => {
+    syncGoogleCalendarHolidays().then((res) => {
+      if (res && res.success && res.holidays && res.holidays.length > 0) {
+        setHolidays(res.holidays);
+      }
+    });
+  }, []);
 
   // Authentication State
   const [authPin, setAuthPin] = useState<string>('');

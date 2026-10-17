@@ -2,6 +2,7 @@ import React from 'react';
 import { X, Edit3, Stethoscope, Trash2, Lock, ShieldCheck } from 'lucide-react';
 import { AbsenceRecord, Department } from '../types';
 import { normalizeTimeType } from '../utils/absence-logic';
+import { getHolidayForDate } from '../services/holidaysService';
 
 interface EventDetailModalProps {
   isOpen: boolean;
@@ -158,6 +159,17 @@ export const EventDetailModal: React.FC<EventDetailModalProps> = ({
             <span className="font-bold text-slate-400 text-xs">📅 วันที่งดตรวจ:</span>
             <span className="font-bold text-slate-800">{dateDisplay}</span>
           </div>
+
+          {Boolean(getHolidayForDate(event.DateStart) || (event.DateEnd && getHolidayForDate(event.DateEnd))) && (
+            <div className="flex items-center justify-between py-2 bg-rose-50 border border-rose-200 px-3 rounded-lg text-rose-800">
+              <span className="font-bold text-xs flex items-center gap-1.5">
+                <span>🎌</span> วันหยุดนักขัตฤกษ์:
+              </span>
+              <span className="font-bold text-xs text-rose-900">
+                {getHolidayForDate(event.DateStart)?.title || (event.DateEnd ? getHolidayForDate(event.DateEnd)?.title : '')}
+              </span>
+            </div>
+          )}
 
           <div className="flex items-center justify-between py-2">
             <span className="font-bold text-slate-400 text-xs">⏰ ช่วงเวลา:</span>

@@ -11,6 +11,7 @@ import {
 import { AbsenceRecord, Department } from '../types';
 import { SUB_SPECIALTIES } from '../services/dataStorage';
 import { formatCanonicalDoctorName } from '../utils/absence-logic';
+import { getHolidayForDate } from '../services/holidaysService';
 
 interface AbsenceFormModalProps {
   isOpen: boolean;
@@ -380,27 +381,46 @@ export const AbsenceFormModal: React.FC<AbsenceFormModalProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
-            <div>
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">วันที่เริ่มต้น</label>
-              <input
-                type="date"
-                value={dateStart}
-                onChange={(e) => setDateStart(e.target.value)}
-                className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs font-bold outline-none"
-                required
-              />
+          <div className="space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">วันที่เริ่มต้น</label>
+                <input
+                  type="date"
+                  value={dateStart}
+                  onChange={(e) => setDateStart(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs font-bold outline-none"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">วันที่สิ้นสุด</label>
+                <input
+                  type="date"
+                  value={dateEnd}
+                  onChange={(e) => setDateEnd(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs font-bold outline-none"
+                  required
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-[11px] font-bold text-slate-600 mb-1">วันที่สิ้นสุด</label>
-              <input
-                type="date"
-                value={dateEnd}
-                onChange={(e) => setDateEnd(e.target.value)}
-                className="w-full bg-white border border-slate-200 rounded-lg p-2 text-xs font-bold outline-none"
-                required
-              />
-            </div>
+
+            {(getHolidayForDate(dateStart) || (dateEnd !== dateStart && getHolidayForDate(dateEnd))) && (
+              <div className="bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold p-2.5 rounded-xl flex items-center gap-2 shadow-2xs">
+                <span className="text-base shrink-0">🎌</span>
+                <div className="text-[11px] leading-tight">
+                  <div className="text-rose-900 font-extrabold">วันที่เลือกตรงกับวันหยุดนักขัตฤกษ์ตาม Google Calendar:</div>
+                  <div className="mt-0.5 font-semibold text-rose-700">
+                    {getHolidayForDate(dateStart) && (
+                      <span>{dateStart}: {getHolidayForDate(dateStart)!.title}</span>
+                    )}
+                    {dateEnd !== dateStart && getHolidayForDate(dateEnd) && (
+                      <span className="ml-2">| {dateEnd}: {getHolidayForDate(dateEnd)!.title}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 5. Impact Control */}
