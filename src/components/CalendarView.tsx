@@ -10,7 +10,6 @@ import {
   Plus,
   Smile,
   Filter,
-  Trash2,
 } from 'lucide-react';
 import { AbsenceRecord, Department, QueueRecord, HolidayItem } from '../types';
 import { normalizeTimeType, normalizeDoctorName } from '../utils/absence-logic';
@@ -270,34 +269,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 key={q.KeyDateDeptDoc}
                 className="w-full border border-teal-200 bg-gradient-to-b from-teal-50/50 to-white shadow-2xs rounded-xl p-2.5 flex flex-col items-center justify-between text-center select-none hover:border-teal-400 hover:shadow-xs transition-all relative group"
               >
-                <div className="flex items-center justify-between w-full gap-1 mb-1">
-                  <div
-                    onClick={() => matchingEvt && onOpenEventDetail(matchingEvt)}
-                    className="text-[11px] font-bold py-0.5 rounded px-2 truncate flex-1 text-left cursor-pointer hover:opacity-90 shadow-2xs"
-                    style={{ backgroundColor: dpt.bg, color: dpt.text }}
-                    title={matchingEvt ? 'คลิกดูรายละเอียดรายการ' : dpt.name}
-                  >
-                    {dpt.name}
-                  </div>
-                  {onCancelQueue && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (
-                          window.confirm(
-                            `ยืนยันยกเลิกโควตานี้และรายการในปฏิทินที่สัมพันธ์กันหรือไม่?\n\n- แผนก: ${dpt.name}\n- แพทย์: ${docLabel}\n\nระบบจะทำการยกเลิกทั้ง 2 ส่วนพร้อมกัน`
-                          )
-                        ) {
-                          onCancelQueue(q.Date, q.DepartmentId, q.DoctorName);
-                        }
-                      }}
-                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
-                      title="ยกเลิกโควตานี้ (จะยกเลิกทั้งโควตาและรายการในปฏิทินพร้อมกัน)"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+                <div
+                  onClick={() => matchingEvt && onOpenEventDetail(matchingEvt)}
+                  className="text-[11px] font-bold w-full py-0.5 rounded px-2 truncate text-center cursor-pointer hover:opacity-90 shadow-2xs mb-1"
+                  style={{ backgroundColor: dpt.bg, color: dpt.text }}
+                  title={matchingEvt ? 'คลิกดูรายละเอียดรายการ' : dpt.name}
+                >
+                  {dpt.name}
                 </div>
 
                 <div

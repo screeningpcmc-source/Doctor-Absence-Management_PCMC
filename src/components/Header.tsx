@@ -228,9 +228,10 @@ export const Header: React.FC<HeaderProps> = ({
         ) : (
           <button
             onClick={onOpenGoogleModal}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-medium shadow-2xs whitespace-nowrap transition-all cursor-pointer"
-            title="ตั้งค่าเชื่อมต่อ Google Sheets & Calendar"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-teal-200 bg-teal-50/60 hover:bg-teal-100 text-teal-800 font-bold shadow-2xs whitespace-nowrap transition-all cursor-pointer"
+            title="จัดการคลาวด์โรงพยาบาล & ส่งออก Google Sheets"
           >
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
               <path
                 fill="#4285F4"
@@ -249,7 +250,7 @@ export const Header: React.FC<HeaderProps> = ({
                 d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98Z"
               />
             </svg>
-            <span className="hidden sm:inline">เชื่อมต่อ Google</span>
+            <span className="hidden sm:inline">คลาวด์ &amp; Google Sheets</span>
           </button>
         )}
       </nav>
