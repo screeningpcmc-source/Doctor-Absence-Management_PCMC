@@ -187,17 +187,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         map.set(key, q);
       } else {
         const existing = map.get(key)!;
-        // Prioritize the queue that matches an event with WalkInQuota
-        const matchEvt = events.find((e) => {
-          const inRange = e.DateStart <= q.Date && (e.DateEnd || e.DateStart) >= q.Date;
-          return (
-            inRange &&
-            e.DepartmentId === q.DepartmentId &&
-            normalizeDoctorName(e.DoctorName) === normalizeDoctorName(q.DoctorName)
-          );
-        });
-        if (matchEvt?.WalkInQuota && Number(matchEvt.WalkInQuota) === q.MaxQuota) {
+        // Prioritize preserving counted/deducted patients (lower CurrentQuota)
+        if (q.CurrentQuota < existing.CurrentQuota) {
           map.set(key, q);
+        } else if (existing.CurrentQuota < q.CurrentQuota) {
+          // keep existing with counted quota
         } else if (q.MaxQuota > existing.MaxQuota) {
           map.set(key, q);
         }
@@ -352,8 +346,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       <div className="flex-1 h-full p-2 md:p-3 overflow-hidden flex flex-col">
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 flex-1 p-3 flex flex-col overflow-hidden">
           {/* Calendar Toolbar */}
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-3 shrink-0">
-            <div className="flex items-center gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 items-center gap-2 mb-3 shrink-0">
+            {/* Left: Month Navigation */}
+            <div className="flex items-center gap-2 justify-start">
               <button
                 onClick={handlePrevMonth}
                 className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
@@ -376,46 +371,43 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               </button>
             </div>
 
-            <div className="flex items-center gap-2">
-              <h2 className="text-base md:text-lg font-black text-slate-800 tracking-tight">
+            {/* Center: Month Name (Centered) */}
+            <div className="flex items-center justify-center text-center">
+              <h2 className="text-base md:text-lg font-black text-slate-800 tracking-tight text-center">
                 {monthNamesThai[month]} {year + 543}
               </h2>
-              <span
-                className="hidden lg:inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full shadow-2xs"
-                title="วันหยุดนักขัตฤกษ์อ้างอิงตาม Google Calendar ของประเทศไทยทั้งหมด (th.th#holiday@group.v.calendar.google.com)"
-              >
-                <span>🎌</span> วันหยุดตาม Google Calendar
-              </span>
             </div>
 
-            {/* Department Filter Selector */}
-            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 shadow-2xs">
-              <Filter className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-              <label htmlFor="calendar-dept-selector" className="text-xs font-bold text-slate-600 whitespace-nowrap">
-                แผนก:
-              </label>
-              <select
-                id="calendar-dept-selector"
-                value={selectedDeptFilter}
-                onChange={(e) => setSelectedDeptFilter(e.target.value)}
-                className="bg-transparent text-xs font-bold text-teal-800 outline-none cursor-pointer max-w-[170px] truncate"
-              >
-                <option value="all">ทั้งหมด ทุกแผนก</option>
-                {departments.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-              {selectedDeptFilter !== 'all' && (
-                <button
-                  onClick={() => setSelectedDeptFilter('all')}
-                  className="text-[10px] text-rose-600 hover:text-rose-700 font-bold ml-0.5 px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 cursor-pointer"
-                  title="แสดงทุกแผนก"
+            {/* Right: Department Filter Selector */}
+            <div className="flex items-center justify-end">
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 shadow-2xs">
+                <Filter className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                <label htmlFor="calendar-dept-selector" className="text-xs font-bold text-slate-600 whitespace-nowrap">
+                  แผนก:
+                </label>
+                <select
+                  id="calendar-dept-selector"
+                  value={selectedDeptFilter}
+                  onChange={(e) => setSelectedDeptFilter(e.target.value)}
+                  className="bg-transparent text-xs font-bold text-teal-800 outline-none cursor-pointer max-w-[170px] truncate"
                 >
-                  ล้าง
-                </button>
-              )}
+                  <option value="all">ทั้งหมด ทุกแผนก</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+                {selectedDeptFilter !== 'all' && (
+                  <button
+                    onClick={() => setSelectedDeptFilter('all')}
+                    className="text-[10px] text-rose-600 hover:text-rose-700 font-bold ml-0.5 px-1.5 py-0.5 rounded bg-rose-50 border border-rose-200 cursor-pointer"
+                    title="แสดงทุกแผนก"
+                  >
+                    ล้าง
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 

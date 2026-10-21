@@ -137,6 +137,9 @@ export const subscribeToAbsences = (
 /**
  * Subscribe to Walk-in quotas in real-time
  */
+const toSafeDocId = (key: string): string => key.replace(/\//g, '__slash__');
+const fromSafeDocId = (id: string): string => id.replace(/__slash__/g, '/');
+
 export const subscribeToQueues = (
   onUpdate: (queues: QueueRecord[]) => void,
   onError?: (err: Error) => void
@@ -150,13 +153,15 @@ export const subscribeToQueues = (
         const queues: QueueRecord[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data();
+          const maxQ = Number(data.maxQuota) || 0;
+          const currQ = data.currentQuota !== undefined && data.currentQuota !== null ? Number(data.currentQuota) : maxQ;
           queues.push({
-            KeyDateDeptDoc: data.keyDateDeptDoc || docSnap.id,
+            KeyDateDeptDoc: data.keyDateDeptDoc || fromSafeDocId(docSnap.id),
             Date: data.date || '',
             DepartmentId: data.departmentId || '',
             DoctorName: data.doctorName || '',
-            MaxQuota: Number(data.maxQuota) || 0,
-            CurrentQuota: Number(data.currentQuota) || 0,
+            MaxQuota: maxQ,
+            CurrentQuota: currQ,
             LastUpdatedBy: data.lastUpdatedBy || '',
           });
         });
@@ -272,15 +277,16 @@ export const deleteAbsenceFromFirestore = async (id: string): Promise<void> => {
  */
 export const saveQueueToFirestore = async (queue: QueueRecord): Promise<void> => {
   try {
-    const key = queue.KeyDateDeptDoc || `${queue.Date}_${queue.DepartmentId}_${queue.DoctorName}`;
-    const docRef = doc(db, COLLECTION_QUEUES, key);
+    const rawKey = queue.KeyDateDeptDoc || `${queue.Date}_${queue.DepartmentId}_${queue.DoctorName}`;
+    const safeKey = toSafeDocId(rawKey);
+    const docRef = doc(db, COLLECTION_QUEUES, safeKey);
     await setDoc(docRef, {
-      keyDateDeptDoc: key,
+      keyDateDeptDoc: rawKey,
       date: String(queue.Date || ''),
       departmentId: String(queue.DepartmentId || ''),
       doctorName: String(queue.DoctorName || ''),
       maxQuota: Number(queue.MaxQuota) || 0,
-      currentQuota: Number(queue.CurrentQuota) || 0,
+      currentQuota: Number(queue.CurrentQuota),
       lastUpdatedBy: String(queue.LastUpdatedBy || ''),
       _lastModified: new Date().toISOString(),
     });
@@ -295,7 +301,8 @@ export const saveQueueToFirestore = async (queue: QueueRecord): Promise<void> =>
  */
 export const deleteQueueFromFirestore = async (keyDateDeptDoc: string): Promise<void> => {
   try {
-    const docRef = doc(db, COLLECTION_QUEUES, keyDateDeptDoc);
+    const safeKey = toSafeDocId(keyDateDeptDoc);
+    const docRef = doc(db, COLLECTION_QUEUES, safeKey);
     await deleteDoc(docRef);
     broadcastHospitalEvent('QUEUE_DELETED', { keyDateDeptDoc });
   } catch (err: any) {

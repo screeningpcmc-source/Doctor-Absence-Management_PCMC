@@ -504,3 +504,57 @@ export const createOrGetAbsenceSpreadsheet = async (): Promise<{ id: string; url
     return null;
   }
 };
+
+/**
+ * Save single Walk-in Quota to Google Apps Script Web App (Google Sheets)
+ */
+export const saveQueueToGAS = async (
+  gasUrl: string,
+  queue: QueueRecord
+): Promise<boolean> => {
+  const url = gasUrl.trim();
+  if (!url) return false;
+
+  try {
+    const payload = {
+      action: 'updateQueue',
+      record: queue,
+    };
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+    });
+    return true;
+  } catch (err) {
+    console.warn('Error saving queue to GAS:', err);
+    return false;
+  }
+};
+
+/**
+ * Save single Daily Walk-in count to Google Apps Script Web App (Google Sheets)
+ */
+export const saveWalkInToGAS = async (
+  gasUrl: string,
+  walkIn: WalkInCountRecord
+): Promise<boolean> => {
+  const url = gasUrl.trim();
+  if (!url) return false;
+
+  try {
+    const payload = {
+      action: 'updateWalkInCount',
+      record: walkIn,
+    };
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+    });
+    return true;
+  } catch (err) {
+    console.warn('Error saving walk-in to GAS:', err);
+    return false;
+  }
+};

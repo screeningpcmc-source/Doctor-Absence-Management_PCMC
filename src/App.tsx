@@ -15,6 +15,8 @@ import {
   deleteAbsenceFromGAS,
   fetchAllFromGAS,
   getShareableLink,
+  saveQueueToGAS,
+  saveWalkInToGAS,
 } from './services/googleWorkspace';
 import {
   subscribeToAbsences,
@@ -216,8 +218,13 @@ export default function App() {
             dedupedMap.set(normKey, q);
           } else {
             const existing = dedupedMap.get(normKey)!;
-            // Prefer the queue that has matching max quota or latest update
-            if (q.MaxQuota >= existing.MaxQuota) {
+            // Prioritize the queue that preserves counted/deducted patients (lower CurrentQuota)
+            if (q.CurrentQuota < existing.CurrentQuota) {
+              dupKeysToDelete.push(existing.KeyDateDeptDoc);
+              dedupedMap.set(normKey, q);
+            } else if (existing.CurrentQuota < q.CurrentQuota) {
+              dupKeysToDelete.push(q.KeyDateDeptDoc);
+            } else if (q.MaxQuota >= existing.MaxQuota) {
               dupKeysToDelete.push(existing.KeyDateDeptDoc);
               dedupedMap.set(normKey, q);
             } else {
@@ -231,7 +238,11 @@ export default function App() {
           if (k) deleteQueueFromFirestore(k).catch(() => {});
         });
 
-        setQueues(Array.from(dedupedMap.values()));
+        const dedupedQueues = Array.from(dedupedMap.values());
+        try {
+          localStorage.setItem('app_queues', JSON.stringify(dedupedQueues));
+        } catch {}
+        setQueues(dedupedQueues);
       }
     });
 
@@ -311,10 +322,55 @@ export default function App() {
             setEvents(res.events);
           }
           if (res.queues && res.queues.length > 0) {
-            setQueues(res.queues);
+            setQueues((prevLocalQueues) => {
+              const mergedMap = new Map<string, QueueRecord>();
+              for (const rq of res.queues!) {
+                const normKey = `${rq.Date}_${rq.DepartmentId}_${normalizeDoctorName(rq.DoctorName)}`;
+                mergedMap.set(normKey, rq);
+              }
+              for (const lq of prevLocalQueues) {
+                const normKey = `${lq.Date}_${lq.DepartmentId}_${normalizeDoctorName(lq.DoctorName)}`;
+                const rq = mergedMap.get(normKey);
+                if (!rq) {
+                  mergedMap.set(normKey, lq);
+                } else if (lq.CurrentQuota < rq.CurrentQuota && lq.MaxQuota === rq.MaxQuota) {
+                  // Local has patients counted/deducted! Preserve local and push back to GAS
+                  mergedMap.set(normKey, lq);
+                  if (gasUrl) {
+                    saveQueueToGAS(gasUrl, lq).catch(() => {});
+                  }
+                }
+              }
+              const merged = Array.from(mergedMap.values());
+              try {
+                localStorage.setItem('app_queues', JSON.stringify(merged));
+              } catch {}
+              return merged;
+            });
           }
           if (res.walkInCounts && res.walkInCounts.length > 0) {
-            setWalkInCounts(res.walkInCounts);
+            setWalkInCounts((prevLocalCounts) => {
+              const mergedMap = new Map<string, WalkInCountRecord>();
+              for (const rw of res.walkInCounts!) {
+                mergedMap.set(rw.KeyDateDept, rw);
+              }
+              for (const lw of prevLocalCounts) {
+                const rw = mergedMap.get(lw.KeyDateDept);
+                if (!rw) {
+                  mergedMap.set(lw.KeyDateDept, lw);
+                } else if (lw.Count > rw.Count) {
+                  mergedMap.set(lw.KeyDateDept, lw);
+                  if (gasUrl) {
+                    saveWalkInToGAS(gasUrl, lw).catch(() => {});
+                  }
+                }
+              }
+              const merged = Array.from(mergedMap.values());
+              try {
+                localStorage.setItem('app_walkin_counts', JSON.stringify(merged));
+              } catch {}
+              return merged;
+            });
           }
           if (!quiet) {
             showToast('อัปเดตข้อมูลล่าสุดจาก Google Sheets สำเร็จเรียบร้อย', 'success');
@@ -493,10 +549,16 @@ export default function App() {
         LastUpdatedBy: authName || 'เจ้าหน้าที่',
       };
       next[idx] = updatedQueue;
+      try {
+        localStorage.setItem('app_queues', JSON.stringify(next));
+      } catch {}
       saveQueueToFirestore(updatedQueue).catch(() => {});
+      if (gasUrl) {
+        saveQueueToGAS(gasUrl, updatedQueue).catch(() => {});
+      }
       return next;
     });
-  }, [authPin, authName, requirePin]);
+  }, [authPin, authName, requirePin, gasUrl]);
 
   const handleRestoreQueue = useCallback((date: string, deptId: string, doctorName: string) => {
     if (authPin !== '4000' && authPin !== '4217') {
@@ -523,10 +585,16 @@ export default function App() {
         LastUpdatedBy: authName || 'เจ้าหน้าที่',
       };
       next[idx] = updatedQueue;
+      try {
+        localStorage.setItem('app_queues', JSON.stringify(next));
+      } catch {}
       saveQueueToFirestore(updatedQueue).catch(() => {});
+      if (gasUrl) {
+        saveQueueToGAS(gasUrl, updatedQueue).catch(() => {});
+      }
       return next;
     });
-  }, [authPin, authName, requirePin]);
+  }, [authPin, authName, requirePin, gasUrl]);
 
   const handleAdjustAdminQueue = useCallback(
     (date: string, deptId: string, doctorName: string, action: 'increment' | 'reset') => {
@@ -554,11 +622,17 @@ export default function App() {
           LastUpdatedBy: authName || 'แอดมิน',
         };
         next[idx] = updatedQueue;
+        try {
+          localStorage.setItem('app_queues', JSON.stringify(next));
+        } catch {}
         saveQueueToFirestore(updatedQueue).catch(() => {});
+        if (gasUrl) {
+          saveQueueToGAS(gasUrl, updatedQueue).catch(() => {});
+        }
         return next;
       });
     },
-    [authPin, authName]
+    [authPin, authName, gasUrl]
   );
 
   // Walk-in Count Update with 0ms Latency
@@ -569,9 +643,10 @@ export default function App() {
         const idx = prev.findIndex((w) => w.KeyDateDept === key);
         const next = [...prev];
 
+        let updated: WalkInCountRecord;
         if (idx !== -1) {
           const newCount = Math.max(0, prev[idx].Count + delta);
-          const updated = {
+          updated = {
             ...prev[idx],
             Count: newCount,
             NurseName: nurse,
@@ -579,10 +654,9 @@ export default function App() {
             UpdatedBy: authName || 'คัดกรอง',
           };
           next[idx] = updated;
-          saveWalkInToFirestore(updated).catch(() => {});
         } else {
           const dpt = deptMap.get(deptId);
-          const newRec: WalkInCountRecord = {
+          updated = {
             KeyDateDept: key,
             Date: selectedDate,
             DepartmentId: deptId,
@@ -592,13 +666,19 @@ export default function App() {
             LastUpdated: new Date().toISOString(),
             UpdatedBy: authName || 'คัดกรอง',
           };
-          next.push(newRec);
-          saveWalkInToFirestore(newRec).catch(() => {});
+          next.push(updated);
+        }
+        try {
+          localStorage.setItem('app_walkin_counts', JSON.stringify(next));
+        } catch {}
+        saveWalkInToFirestore(updated).catch(() => {});
+        if (gasUrl) {
+          saveWalkInToGAS(gasUrl, updated).catch(() => {});
         }
         return next;
       });
     },
-    [selectedDate, deptMap, authName]
+    [selectedDate, deptMap, authName, gasUrl]
   );
 
   const handleResetWalkInCount = useCallback(
@@ -616,11 +696,17 @@ export default function App() {
           UpdatedBy: authName || 'คัดกรอง',
         };
         next[idx] = updated;
+        try {
+          localStorage.setItem('app_walkin_counts', JSON.stringify(next));
+        } catch {}
         saveWalkInToFirestore(updated).catch(() => {});
+        if (gasUrl) {
+          saveWalkInToGAS(gasUrl, updated).catch(() => {});
+        }
         return next;
       });
     },
-    [selectedDate, authName]
+    [selectedDate, authName, gasUrl]
   );
 
   // Save Absence Event (Create or Update with synchronized Walk-in Quota)
