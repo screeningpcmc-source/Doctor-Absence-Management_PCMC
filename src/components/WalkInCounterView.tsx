@@ -102,7 +102,7 @@ export const WalkInCounterView: React.FC<WalkInCounterViewProps> = ({
       alert('กรุณากรอก "ชื่อพยาบาลเวรปฏิบัติงาน" ที่ช่องด้านบนก่อนเริ่มนับยอด');
       return;
     }
-    if (authPin !== '4000' && authPin !== '4217') {
+    if (!authPin) {
       onRequirePin(() => onUpdateCount(deptId, 1, nurseName));
       return;
     }
@@ -114,7 +114,7 @@ export const WalkInCounterView: React.FC<WalkInCounterViewProps> = ({
       alert('กรุณากรอกชื่อพยาบาลก่อน');
       return;
     }
-    if (authPin !== '4000' && authPin !== '4217') {
+    if (!authPin) {
       onRequirePin(() => onUpdateCount(deptId, -1, nurseName));
       return;
     }
@@ -122,7 +122,7 @@ export const WalkInCounterView: React.FC<WalkInCounterViewProps> = ({
   };
 
   const handleResetClick = (deptId: string) => {
-    if (authPin !== '4000' && authPin !== '4217') {
+    if (!authPin) {
       onRequirePin(() => onResetCount(deptId, nurseName));
       return;
     }

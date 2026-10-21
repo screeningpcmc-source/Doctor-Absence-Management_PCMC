@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { User } from 'firebase/auth';
 import {
   initAuth,
@@ -125,9 +125,26 @@ export default function App() {
     });
   }, []);
 
-  // Authentication State
-  const [authPin, setAuthPin] = useState<string>('');
-  const [authName, setAuthName] = useState<string>('');
+  // Authentication State with persistent session to prevent hanging/losing login on refresh
+  const [authPin, setAuthPin] = useState<string>(() => {
+    try {
+      return localStorage.getItem('app_auth_pin') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [authName, setAuthName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('app_auth_name') || '';
+    } catch {
+      return '';
+    }
+  });
+
+  const authPinRef = useRef(authPin);
+  authPinRef.current = authPin;
+  const authNameRef = useRef(authName);
+  authNameRef.current = authName;
   const [googleUser, setGoogleUser] = useState<User | null>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [spreadsheetUrl, setSpreadsheetUrl] = useState<string | null>(() => {
@@ -397,27 +414,52 @@ export default function App() {
 
   // Action authorization helper
   const requirePin = useCallback((action: () => void) => {
-    if (authPin && authName) {
+    const activePin = authPinRef.current;
+    const activeName = authNameRef.current;
+    if (activePin && activeName) {
       action();
     } else {
       setPendingAction(() => action);
       setIsPinModalOpen(true);
     }
-  }, [authPin, authName]);
+  }, []);
 
   const handlePinSuccess = (pin: string, userName: string) => {
     setAuthPin(pin);
     setAuthName(userName);
+    authPinRef.current = pin;
+    authNameRef.current = userName;
+    try {
+      localStorage.setItem('app_auth_pin', pin);
+      localStorage.setItem('app_auth_name', userName);
+    } catch {}
     setIsPinModalOpen(false);
+    showToast(`เข้าสู่ระบบสำเร็จ: ${userName}`, 'success');
+
     if (pendingAction) {
-      pendingAction();
+      const act = pendingAction;
       setPendingAction(null);
+      // Execute pending action smoothly with newly authenticated user
+      setTimeout(() => {
+        try {
+          act();
+        } catch (e) {
+          console.error('Error executing authorized action:', e);
+        }
+      }, 50);
     }
   };
 
   const handlePinLogout = () => {
     setAuthPin('');
     setAuthName('');
+    authPinRef.current = '';
+    authNameRef.current = '';
+    try {
+      localStorage.removeItem('app_auth_pin');
+      localStorage.removeItem('app_auth_name');
+    } catch {}
+    showToast('ออกจากระบบ PIN เรียบร้อย', 'info');
   };
 
   // Google Sign-in flow
@@ -524,31 +566,62 @@ export default function App() {
   );
 
   // Queue Operations with 0ms Optimistic UI updates
+  // Queue Operations with 0ms Optimistic UI updates
   const handleDeductQueue = useCallback((date: string, deptId: string, doctorName: string) => {
-    if (authPin !== '4000' && authPin !== '4217') {
+    const activePin = authPinRef.current;
+    const activeName = authNameRef.current;
+    if (!activePin || !activeName) {
       requirePin(() => handleDeductQueue(date, deptId, doctorName));
       return;
     }
 
     setQueues((prev) => {
       const normDoc = normalizeDoctorName(doctorName);
-      const idx = prev.findIndex(
+      let idx = prev.findIndex(
         (q) => q.Date === date && q.DepartmentId === deptId && normalizeDoctorName(q.DoctorName) === normDoc
       );
-      if (idx === -1) return prev;
-      const target = prev[idx];
+
+      let target: QueueRecord;
+      const next = [...prev];
+
+      if (idx === -1) {
+        // Find corresponding event to initialize queue record
+        const matchingEvt = events.find((e) => {
+          const inRange = e.DateStart <= date && (e.DateEnd || e.DateStart) >= date;
+          return inRange && e.DepartmentId === deptId && normalizeDoctorName(e.DoctorName) === normDoc;
+        });
+        const maxQ =
+          matchingEvt?.WalkInQuota && Number(matchingEvt.WalkInQuota) > 0
+            ? Number(matchingEvt.WalkInQuota)
+            : 8;
+        target = {
+          KeyDateDeptDoc: `${date}_${deptId}_${normDoc}`,
+          Date: date,
+          DepartmentId: deptId,
+          DoctorName: doctorName || '-',
+          MaxQuota: maxQ,
+          CurrentQuota: maxQ,
+          LastUpdatedBy: activeName || 'เจ้าหน้าที่',
+        };
+        next.push(target);
+        idx = next.length - 1;
+      } else {
+        target = prev[idx];
+      }
+
       const result = deductQueueQuota(target.CurrentQuota, target.MaxQuota);
       if (!result.success) {
         alert(result.error);
         return prev;
       }
-      const next = [...prev];
+
       const updatedQueue = {
         ...target,
         CurrentQuota: result.newQuota,
-        LastUpdatedBy: authName || 'เจ้าหน้าที่',
+        LastUpdatedBy: activeName || 'เจ้าหน้าที่',
       };
       next[idx] = updatedQueue;
+
       try {
         localStorage.setItem('app_queues', JSON.stringify(next));
       } catch {}
@@ -558,33 +631,62 @@ export default function App() {
       }
       return next;
     });
-  }, [authPin, authName, requirePin, gasUrl]);
+  }, [requirePin, events, gasUrl]);
 
   const handleRestoreQueue = useCallback((date: string, deptId: string, doctorName: string) => {
-    if (authPin !== '4000' && authPin !== '4217') {
+    const activePin = authPinRef.current;
+    const activeName = authNameRef.current;
+    if (!activePin || !activeName) {
       requirePin(() => handleRestoreQueue(date, deptId, doctorName));
       return;
     }
 
     setQueues((prev) => {
       const normDoc = normalizeDoctorName(doctorName);
-      const idx = prev.findIndex(
+      let idx = prev.findIndex(
         (q) => q.Date === date && q.DepartmentId === deptId && normalizeDoctorName(q.DoctorName) === normDoc
       );
-      if (idx === -1) return prev;
-      const target = prev[idx];
+
+      let target: QueueRecord;
+      const next = [...prev];
+
+      if (idx === -1) {
+        const matchingEvt = events.find((e) => {
+          const inRange = e.DateStart <= date && (e.DateEnd || e.DateStart) >= date;
+          return inRange && e.DepartmentId === deptId && normalizeDoctorName(e.DoctorName) === normDoc;
+        });
+        const maxQ =
+          matchingEvt?.WalkInQuota && Number(matchingEvt.WalkInQuota) > 0
+            ? Number(matchingEvt.WalkInQuota)
+            : 8;
+        target = {
+          KeyDateDeptDoc: `${date}_${deptId}_${normDoc}`,
+          Date: date,
+          DepartmentId: deptId,
+          DoctorName: doctorName || '-',
+          MaxQuota: maxQ,
+          CurrentQuota: maxQ,
+          LastUpdatedBy: activeName || 'เจ้าหน้าที่',
+        };
+        next.push(target);
+        idx = next.length - 1;
+      } else {
+        target = prev[idx];
+      }
+
       const result = restoreQueueQuota(target.CurrentQuota, target.MaxQuota);
       if (!result.success) {
         alert(result.error);
         return prev;
       }
-      const next = [...prev];
+
       const updatedQueue = {
         ...target,
         CurrentQuota: result.newQuota,
-        LastUpdatedBy: authName || 'เจ้าหน้าที่',
+        LastUpdatedBy: activeName || 'เจ้าหน้าที่',
       };
       next[idx] = updatedQueue;
+
       try {
         localStorage.setItem('app_queues', JSON.stringify(next));
       } catch {}
@@ -594,7 +696,7 @@ export default function App() {
       }
       return next;
     });
-  }, [authPin, authName, requirePin, gasUrl]);
+  }, [requirePin, events, gasUrl]);
 
   const handleAdjustAdminQueue = useCallback(
     (date: string, deptId: string, doctorName: string, action: 'increment' | 'reset') => {
@@ -731,118 +833,127 @@ export default function App() {
     });
 
     // 3. Walk-in quota synchronization and duplicate prevention
-    const hasWalkInQuota = Boolean(record.WalkInQuota && Number(record.WalkInQuota) > 0);
-    const quotaNum = hasWalkInQuota ? Number(record.WalkInQuota) : 0;
+    const hasWalkInQuota = Boolean(
+      (record.WalkInQuota && Number(record.WalkInQuota) > 0) ||
+      record.Reason === 'จำกัดเคส walk-in' ||
+      record.Reason === 'ระบบโควตา Walk-in'
+    );
+    const quotaNum = Number(record.WalkInQuota) > 0 ? Number(record.WalkInQuota) : 8;
     const normNewDoc = normalizeDoctorName(record.DoctorName);
-    const newKey = `${record.DateStart}_${record.DepartmentId}_${normNewDoc}`;
+
+    // Compute all dates spanning DateStart to DateEnd
+    const targetDates: string[] = [];
+    const [sy, sm, sd] = record.DateStart.split('-').map(Number);
+    const [ey, em, ed] = (record.DateEnd || record.DateStart).split('-').map(Number);
+    const cur = new Date(Date.UTC(sy, sm - 1, sd));
+    const stop = new Date(Date.UTC(ey, em - 1, ed));
+    while (cur <= stop) {
+      const y = cur.getUTCFullYear();
+      const m = String(cur.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(cur.getUTCDate()).padStart(2, '0');
+      targetDates.push(`${y}-${m}-${d}`);
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
 
     const oldNormDoc = prevRecord ? normalizeDoctorName(prevRecord.DoctorName) : null;
-    const oldKey =
-      prevRecord && oldNormDoc
-        ? `${prevRecord.DateStart}_${prevRecord.DepartmentId}_${oldNormDoc}`
-        : null;
-    const oldRawKey = prevRecord
-      ? `${prevRecord.DateStart}_${prevRecord.DepartmentId}_${prevRecord.DoctorName}`
-      : null;
 
     if (hasWalkInQuota) {
-      // If date, department, or doctor changed from the prior record, remove the obsolete old queue(s)
-      if (oldKey && oldKey !== newKey) {
-        deleteQueueFromFirestore(oldKey).catch(() => {});
-        if (oldRawKey && oldRawKey !== oldKey) {
-          deleteQueueFromFirestore(oldRawKey).catch(() => {});
-        }
-      }
-
       setQueues((prev) => {
-        // Filter out obsolete old queues and ANY duplicate matching this slot
-        const filtered = prev.filter((q) => {
+        let currentQueues = [...prev];
+
+        for (const dateStr of targetDates) {
+          const newKey = `${dateStr}_${record.DepartmentId}_${normNewDoc}`;
+          const oldKey =
+            prevRecord && oldNormDoc
+              ? `${dateStr}_${prevRecord.DepartmentId}_${oldNormDoc}`
+              : null;
+          const oldRawKey = prevRecord
+            ? `${dateStr}_${prevRecord.DepartmentId}_${prevRecord.DoctorName}`
+            : null;
+
           if (oldKey && oldKey !== newKey) {
-            if (q.KeyDateDeptDoc === oldKey || q.KeyDateDeptDoc === oldRawKey) return false;
+            deleteQueueFromFirestore(oldKey).catch(() => {});
+            if (oldRawKey && oldRawKey !== oldKey) {
+              deleteQueueFromFirestore(oldRawKey).catch(() => {});
+            }
+          }
+
+          // Filter out matching prior queue
+          currentQueues = currentQueues.filter((q) => {
+            if (oldKey && oldKey !== newKey) {
+              if (q.KeyDateDeptDoc === oldKey || q.KeyDateDeptDoc === oldRawKey) return false;
+            }
+            if (q.KeyDateDeptDoc === newKey) return false;
             if (
-              prevRecord &&
-              q.Date === prevRecord.DateStart &&
-              q.DepartmentId === prevRecord.DepartmentId &&
-              normalizeDoctorName(q.DoctorName) === oldNormDoc
+              q.Date === dateStr &&
+              q.DepartmentId === record.DepartmentId &&
+              normalizeDoctorName(q.DoctorName) === normNewDoc
             ) {
               return false;
             }
-          }
-          if (q.KeyDateDeptDoc === newKey) return false;
-          if (
-            q.Date === record.DateStart &&
-            q.DepartmentId === record.DepartmentId &&
-            normalizeDoctorName(q.DoctorName) === normNewDoc
-          ) {
-            return false;
-          }
-          return true;
-        });
+            return true;
+          });
 
-        // Check if an existing queue existed for this slot to preserve usage deductions
-        const existingQueue = prev.find(
-          (q) =>
-            q.KeyDateDeptDoc === newKey ||
-            (q.Date === record.DateStart &&
-              q.DepartmentId === record.DepartmentId &&
-              normalizeDoctorName(q.DoctorName) === normNewDoc) ||
-            (oldKey && (q.KeyDateDeptDoc === oldKey || q.KeyDateDeptDoc === oldRawKey))
-        );
+          // Check existing queue to preserve deduction
+          const existingQueue = prev.find(
+            (q) =>
+              q.KeyDateDeptDoc === newKey ||
+              (q.Date === dateStr &&
+                q.DepartmentId === record.DepartmentId &&
+                normalizeDoctorName(q.DoctorName) === normNewDoc) ||
+              (oldKey && (q.KeyDateDeptDoc === oldKey || q.KeyDateDeptDoc === oldRawKey))
+          );
 
-        let finalCurrentQuota = quotaNum;
-        if (existingQueue) {
-          const used = Math.max(0, existingQueue.MaxQuota - existingQueue.CurrentQuota);
-          if (existingQueue.MaxQuota === quotaNum) {
-            finalCurrentQuota = existingQueue.CurrentQuota;
-          } else {
-            finalCurrentQuota = Math.max(0, quotaNum - used);
+          let finalCurrentQuota = quotaNum;
+          if (existingQueue) {
+            const used = Math.max(0, existingQueue.MaxQuota - existingQueue.CurrentQuota);
+            if (existingQueue.MaxQuota === quotaNum) {
+              finalCurrentQuota = existingQueue.CurrentQuota;
+            } else {
+              finalCurrentQuota = Math.max(0, quotaNum - used);
+            }
           }
+
+          const newQueueRecord: QueueRecord = {
+            KeyDateDeptDoc: newKey,
+            Date: dateStr,
+            DepartmentId: record.DepartmentId,
+            DoctorName: record.DoctorName,
+            MaxQuota: quotaNum,
+            CurrentQuota: finalCurrentQuota,
+            LastUpdatedBy: authNameRef.current || authName || 'เจ้าหน้าที่',
+          };
+
+          saveQueueToFirestore(newQueueRecord).catch(() => {});
+          currentQueues.push(newQueueRecord);
         }
 
-        const newQueueRecord: QueueRecord = {
-          KeyDateDeptDoc: newKey,
-          Date: record.DateStart,
-          DepartmentId: record.DepartmentId,
-          DoctorName: record.DoctorName,
-          MaxQuota: quotaNum,
-          CurrentQuota: finalCurrentQuota,
-          LastUpdatedBy: authName || 'เจ้าหน้าที่',
-        };
-
-        // Save immediately to Firestore
-        saveQueueToFirestore(newQueueRecord).catch(() => {});
-
-        return [...filtered, newQueueRecord];
+        try {
+          localStorage.setItem('app_queues', JSON.stringify(currentQueues));
+        } catch {}
+        return currentQueues;
       });
     } else {
-      // Walk-in quota was removed or cancelled (empty, 0, or non-walk-in reason)
-      // Must completely remove and delete the correlated doctor queue quota
-      if (oldKey) {
-        deleteQueueFromFirestore(oldKey).catch(() => {});
-      }
-      if (oldRawKey && oldRawKey !== oldKey) {
-        deleteQueueFromFirestore(oldRawKey).catch(() => {});
-      }
-      deleteQueueFromFirestore(newKey).catch(() => {});
-      deleteQueueFromFirestore(`${record.DateStart}_${record.DepartmentId}_${record.DoctorName}`).catch(() => {});
-
-      setQueues((prev) =>
-        prev.filter((q) => {
+      // Walk-in quota was removed or cancelled
+      setQueues((prev) => {
+        for (const dateStr of targetDates) {
+          const delKey = `${dateStr}_${record.DepartmentId}_${normNewDoc}`;
+          deleteQueueFromFirestore(delKey).catch(() => {});
+          deleteQueueFromFirestore(`${dateStr}_${record.DepartmentId}_${record.DoctorName}`).catch(() => {});
+        }
+        const filtered = prev.filter((q) => {
+          const inRange = targetDates.includes(q.Date);
           const matchNew =
-            q.KeyDateDeptDoc === newKey ||
-            (q.Date === record.DateStart &&
-              q.DepartmentId === record.DepartmentId &&
-              normalizeDoctorName(q.DoctorName) === normNewDoc);
-          const matchOld =
-            prevRecord &&
-            (q.KeyDateDeptDoc === oldKey ||
-              q.KeyDateDeptDoc === oldRawKey ||
-              (q.Date === prevRecord.DateStart &&
-                q.DepartmentId === prevRecord.DepartmentId &&
-                normalizeDoctorName(q.DoctorName) === oldNormDoc));
-          return !matchNew && !matchOld;
-        })
-      );
+            inRange &&
+            q.DepartmentId === record.DepartmentId &&
+            normalizeDoctorName(q.DoctorName) === normNewDoc;
+          return !matchNew;
+        });
+        try {
+          localStorage.setItem('app_queues', JSON.stringify(filtered));
+        } catch {}
+        return filtered;
+      });
     }
 
     setIsFormModalOpen(false);

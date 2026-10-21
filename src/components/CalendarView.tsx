@@ -176,9 +176,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     return map;
   }, [holidays]);
 
-  // Active queues for selectedDate (Strict de-duplication to prevent duplicate cards)
+  // Active queues for selectedDate (Strict de-duplication to prevent duplicate cards + auto-include doctor walk-in restrictions from events)
   const activeQueues = useMemo(() => {
     const map = new Map<string, QueueRecord>();
+
+    // 1. Add explicitly recorded queues for selectedDate
     for (const q of queues) {
       if (q.Date !== selectedDate) continue;
       if (selectedDeptFilter !== 'all' && q.DepartmentId !== selectedDeptFilter) continue;
@@ -197,6 +199,37 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         }
       }
     }
+
+    // 2. Also ensure every doctor/department event on selectedDate with a walk-in quota limit is represented
+    for (const evt of events) {
+      const inRange = evt.DateStart <= selectedDate && (evt.DateEnd || evt.DateStart) >= selectedDate;
+      if (!inRange) continue;
+      if (selectedDeptFilter !== 'all' && evt.DepartmentId !== selectedDeptFilter) continue;
+
+      const isWalkIn =
+        evt.Reason === 'จำกัดเคส walk-in' ||
+        evt.Reason === 'ระบบโควตา Walk-in' ||
+        Boolean(evt.WalkInQuota && Number(evt.WalkInQuota) > 0);
+      if (!isWalkIn) continue;
+
+      const normDoc = normalizeDoctorName(evt.DoctorName);
+      const key = `${selectedDate}_${evt.DepartmentId}_${normDoc}`;
+
+      if (!map.has(key)) {
+        const quotaLimit =
+          evt.WalkInQuota && Number(evt.WalkInQuota) > 0 ? Number(evt.WalkInQuota) : 8;
+        map.set(key, {
+          KeyDateDeptDoc: key,
+          Date: selectedDate,
+          DepartmentId: evt.DepartmentId,
+          DoctorName: evt.DoctorName || '-',
+          MaxQuota: quotaLimit,
+          CurrentQuota: quotaLimit,
+          LastUpdatedBy: evt.UpdatedBy || 'ระบบโควตา',
+        });
+      }
+    }
+
     return Array.from(map.values());
   }, [queues, selectedDate, selectedDeptFilter, events]);
 
@@ -206,7 +239,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   // Events on selectedDate filtered by department
   const agendaEvents = useMemo(() => {
     return events.filter((e) => {
-      const inRange = e.DateStart <= selectedDate && e.DateEnd >= selectedDate;
+      const inRange = e.DateStart <= selectedDate && (e.DateEnd || e.DateStart) >= selectedDate;
       if (!inRange) return false;
       if (selectedDeptFilter !== 'all' && e.DepartmentId !== selectedDeptFilter) return false;
       return true;
@@ -266,6 +299,12 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               return inRange && sameDept && sameDoc;
             });
 
+            // Department label with SubSpecialty if present (e.g. ศัลยกรรม-Uro)
+            const deptDisplayLabel =
+              matchingEvt?.Specialty && matchingEvt.Specialty !== 'ทั่วไป'
+                ? `${dpt.name}-${matchingEvt.Specialty}`
+                : dpt.name;
+
             return (
               <div
                 key={q.KeyDateDeptDoc}
@@ -275,9 +314,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   onClick={() => matchingEvt && onOpenEventDetail(matchingEvt)}
                   className="text-[11px] font-bold w-full py-0.5 rounded px-2 truncate text-center cursor-pointer hover:opacity-90 shadow-2xs mb-1"
                   style={{ backgroundColor: dpt.bg, color: dpt.text }}
-                  title={matchingEvt ? 'คลิกดูรายละเอียดรายการ' : dpt.name}
+                  title={matchingEvt ? 'คลิกดูรายละเอียดรายการ' : deptDisplayLabel}
                 >
-                  {dpt.name}
+                  {deptDisplayLabel}
                 </div>
 
                 <div
@@ -474,38 +513,60 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
                   {/* Badges for events on this day */}
                   <div className="space-y-1 mt-1 overflow-hidden flex-1">
-                    {dayEvents.slice(0, 2).map((evt) => {
-                      const dpt = deptMap.get(evt.DepartmentId) || {
-                        name: evt.DepartmentId,
-                        bg: '#f1f5f9',
-                        text: '#334155',
-                      };
-                      const hasDoc = evt.DoctorName && evt.DoctorName.trim() !== '' && evt.DoctorName !== '-';
-                      const isWalkIn = evt.Reason === 'จำกัดเคส walk-in' || evt.Reason === 'ระบบโควตา Walk-in';
-                      const label = evt.Reason === 'คลินิกปิดให้บริการ'
-                        ? `[ปิด] ${dpt.name}`
-                        : isWalkIn
-                        ? `[Q] ${hasDoc ? evt.DoctorName : dpt.name}`
-                        : hasDoc ? evt.DoctorName : dpt.name;
+                    {dayEvents
+                      .slice()
+                      .sort((a, b) => {
+                        const aWalk =
+                          a.Reason === 'จำกัดเคส walk-in' ||
+                          a.Reason === 'ระบบโควตา Walk-in' ||
+                          Boolean(a.WalkInQuota && Number(a.WalkInQuota) > 0);
+                        const bWalk =
+                          b.Reason === 'จำกัดเคส walk-in' ||
+                          b.Reason === 'ระบบโควตา Walk-in' ||
+                          Boolean(b.WalkInQuota && Number(b.WalkInQuota) > 0);
+                        if (aWalk && !bWalk) return -1;
+                        if (!aWalk && bWalk) return 1;
+                        return 0;
+                      })
+                      .slice(0, 3)
+                      .map((evt) => {
+                        const dpt = deptMap.get(evt.DepartmentId) || {
+                          name: evt.DepartmentId,
+                          bg: '#f1f5f9',
+                          text: '#334155',
+                        };
+                        const hasDoc = evt.DoctorName && evt.DoctorName.trim() !== '' && evt.DoctorName !== '-';
+                        const isWalkIn =
+                          evt.Reason === 'จำกัดเคส walk-in' ||
+                          evt.Reason === 'ระบบโควตา Walk-in' ||
+                          Boolean(evt.WalkInQuota && Number(evt.WalkInQuota) > 0);
+                        const label =
+                          evt.Reason === 'คลินิกปิดให้บริการ'
+                            ? `[ปิด] ${dpt.name}`
+                            : isWalkIn
+                            ? `[Q] ${hasDoc ? evt.DoctorName : dpt.name}`
+                            : hasDoc
+                            ? evt.DoctorName
+                            : dpt.name;
 
-                      return (
-                        <div
-                          key={evt.ID}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onOpenEventDetail(evt);
-                          }}
-                          className="text-[10px] font-semibold px-1 py-0.5 rounded truncate transition-opacity hover:opacity-80"
-                          style={{ backgroundColor: dpt.bg, color: dpt.text }}
-                          title={`${dpt.name}: ${label} (${evt.Reason})`}
-                        >
-                          {label}
-                        </div>
-                      );
-                    })}
-                    {dayEvents.length > 2 && (
+                        return (
+                          <div
+                            key={evt.ID}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenEventDetail(evt);
+                            }}
+                            className="text-[10px] font-semibold px-1 py-0.5 rounded truncate transition-opacity hover:opacity-80"
+                            style={{ backgroundColor: dpt.bg, color: dpt.text }}
+                            title={`${dpt.name}: ${label} (${evt.Reason})`}
+                          >
+                            {label}
+                          </div>
+                        );
+                      })}
+                    {dayEvents.length > 3 && (
                       <div className="text-[9px] text-slate-500 font-bold pl-0.5">
-                        +{dayEvents.length - 2} รายการ
+                        +{dayEvents.length - 3} รายการ
                       </div>
                     )}
                   </div>

@@ -46,7 +46,19 @@ export interface SignInResult {
 export const googleSignIn = async (): Promise<SignInResult | null> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
+    
+    // Protect against hanging popup in iframes/browsers with a 35s timeout
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('การเข้าสู่ระบบ Google หมดเวลา (35 วินาที) หากมีหน้าต่างป็อปอัปค้างอยู่ กรุณาปิดแล้วลองใหม่อีกครั้ง หรือตรวจสอบตัวบล็อกป็อปอัป'));
+      }, 35000);
+    });
+
+    const result = await Promise.race([
+      signInWithPopup(auth, provider),
+      timeoutPromise,
+    ]);
+
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       throw new Error('ไม่พบ Access Token จากการยืนยันตัวตน Google');
@@ -55,7 +67,6 @@ export const googleSignIn = async (): Promise<SignInResult | null> => {
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
     console.error('Sign in error:', error);
-    // Parse common Firebase errors into actionable Thai descriptions
     const code = error?.code || '';
     if (code === 'auth/unauthorized-domain' || error?.message?.includes('unauthorized-domain')) {
       const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'unknown';
@@ -66,6 +77,8 @@ export const googleSignIn = async (): Promise<SignInResult | null> => {
       throw new Error('เบราว์เซอร์บล็อกหน้าต่างป็อปอัป กรุณาอนุญาตป็อปอัปสำหรับเว็บไซต์นี้');
     } else if (code === 'auth/popup-closed-by-user' || error?.message?.includes('closed-by-user')) {
       throw new Error('หน้าต่างเข้าสู่ระบบถูกปิดก่อนเสร็จสิ้นกระบวนการ');
+    } else if (code === 'auth/cancelled-popup-request') {
+      throw new Error('มีการเปิดหน้าต่างเข้าสู่ระบบซ้อนกัน กรุณาลองใหม่อีกครั้ง');
     } else if (code === 'auth/network-request-failed') {
       throw new Error('การเชื่อมต่ออินเทอร์เน็ตมีปัญหา กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่');
     }

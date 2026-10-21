@@ -154,18 +154,20 @@ export const Header: React.FC<HeaderProps> = ({
         {authName ? (
           <button
             onClick={onPinLogout}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold hover:bg-emerald-100 whitespace-nowrap transition-all"
-            title="คลิกเพื่อออกจากระบบ PIN"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold hover:bg-emerald-100 whitespace-nowrap transition-all cursor-pointer shadow-2xs"
+            title={`เข้าสู่ระบบแล้ว: ${authName} (PIN: ${authPin}) - คลิกเพื่อออกจากระบบหรือเปลี่ยนแผนก`}
           >
-            <Unlock className="w-3.5 h-3.5 text-emerald-600" />
-            <span className="max-w-[100px] truncate">{authName}</span>
+            <Unlock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+            <span className="max-w-[120px] truncate">{authName}</span>
+            <span className="text-[10px] text-emerald-600 font-normal hidden md:inline ml-0.5">(เปลี่ยน)</span>
           </button>
         ) : (
           <button
             onClick={onOpenPinLogin}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-slate-200 text-slate-700 hover:bg-slate-50 whitespace-nowrap transition-all font-semibold"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 whitespace-nowrap transition-all font-bold cursor-pointer shadow-2xs"
+            title="คลิกเพื่อเข้าสู่ระบบด้วยรหัส PIN ประจำแผนก"
           >
-            <Lock className="w-3.5 h-3.5 text-slate-400" />
+            <Lock className="w-3.5 h-3.5 text-slate-500" />
             <span>เข้าสู่ระบบ PIN</span>
           </button>
         )}
