@@ -155,7 +155,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onPinLogout}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-emerald-50 text-emerald-800 border border-emerald-300 font-bold hover:bg-emerald-100 whitespace-nowrap transition-all cursor-pointer shadow-2xs"
-            title={`เข้าสู่ระบบแล้ว: ${authName} (PIN: ${authPin}) - คลิกเพื่อออกจากระบบหรือเปลี่ยนแผนก`}
+            title={`เข้าสู่ระบบแล้ว: ${authName} - คลิกเพื่อออกจากระบบหรือเปลี่ยนแผนก`}
           >
             <Unlock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
             <span className="max-w-[120px] truncate">{authName}</span>
